@@ -37,6 +37,36 @@ _flow_lock = threading.Lock()
 PROJECTS_FILE = os.path.join(DATA_DIR, "projects.json")
 _projects_lock = threading.Lock()
 
+OFFICE_TRADING_PATH = Path.home() / "HydrocarbonForge" / "Projects" / "forge-office" / "data" / "trading.json"
+
+
+def fetch_trading_data():
+    """
+    Fetches trading stats from forge-office (8904) or falls back to data/trading.json.
+    Returns (dict_or_None, error_str_or_None).
+    """
+    # 1. urllib fetch http://127.0.0.1:8904/data/trading.json (timeout ~1.5s)
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8904/data/trading.json")
+        req.add_header("User-Agent", "ForgeConsole/1.0")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            if resp.status == 200:
+                body = resp.read()
+                return json.loads(body.decode("utf-8")), None
+    except Exception:
+        pass
+
+    # 2. Fall back to reading ~/HydrocarbonForge/Projects/forge-office/data/trading.json
+    try:
+        if OFFICE_TRADING_PATH.exists():
+            with open(OFFICE_TRADING_PATH, "r", encoding="utf-8") as f:
+                return json.load(f), None
+    except Exception as e:
+        return None, f"Failed reading local trading.json: {e}"
+
+    # 3. Both failed
+    return None, "Office trading service unreachable and trading.json not found"
+
 
 def load_projects_data():
     with _projects_lock:
@@ -151,6 +181,16 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/projects/"):
             proj_id = path[len("/api/projects/"):].strip("/")
             self.handle_get_project_detail(proj_id)
+            return
+
+        # 2c. /api/trading (console own: office trading stats)
+        if path == "/api/trading":
+            self.handle_trading()
+            return
+
+        # 2d. /api/home (console own: aggregated home payload)
+        if path == "/api/home":
+            self.handle_home()
             return
 
         # 3. Existing proxy routes (backward compat)
@@ -328,6 +368,82 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
         self.send_error_json(404, f"Project '{proj_id}' not found")
+
+    def handle_trading(self):
+        """Returns forge-office trading.json data with 502 fallback."""
+        data, err = fetch_trading_data()
+        if data is None:
+            self.send_upstream_down_json(502, err or "Trading upstream unavailable", "office")
+            return
+
+        body = json.dumps(data, indent=2).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_home(self):
+        """Returns consolidated home dashboard payload (summary 1d, 3650d, flow, trading)."""
+        with _flow_lock:
+            cached_flow = _flow_cache or {}
+
+        trading_data, _ = fetch_trading_data()
+
+        # Summary 1d
+        summary_1d = None
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8901/api/summary?days=1")
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    summary_1d = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+        # Summary 3650d
+        summary_alltime = None
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8901/api/summary?days=3650")
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    summary_alltime = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+        # Scheme stats (ideas count)
+        ideas_count = 0
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8902/api/stats")
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    stats_doc = json.loads(resp.read().decode("utf-8"))
+                    ideas_count = stats_doc.get("total_ideas", stats_doc.get("ideas_count", 0))
+        except Exception:
+            pass
+
+        payload = {
+            "ok": True,
+            "summary_today": summary_1d,
+            "summary_alltime": summary_alltime,
+            "flow": {
+                "harnesses": cached_flow.get("harnesses", []),
+                "projects": cached_flow.get("projects", []),
+                "services": cached_flow.get("services", []),
+            },
+            "trading": trading_data,
+            "ideas_count": ideas_count,
+            "projects_count": len(cached_flow.get("projects", [])),
+            "generated_at": time.time(),
+        }
+
+        body = json.dumps(payload, indent=2).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(body)
 
     def handle_post_project(self):
         """Creates a new project in data/projects.json."""
