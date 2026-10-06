@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydrocarbon Forge — Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- SVG Symbols for Logo Mark -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="hf-mark" viewBox="0 0 100 100">
+      <path fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round" d="M50 10 L83.84 30 L83.84 70 L50 90 L16.16 70 L16.16 30 Z" />
+      <path fill="#121212" d="M50.11 49 L50.02 77.6 L26.63 63.77 L26.62 36.13 Z" />
+      <path fill="#0a0a0a" d="M50.02 49.43 L50.01 77.65 L73.41 63.83 L73.42 36.18 Z" />
+      <path fill="#1a1a1a" d="M26.6 36.18 L50.02 49.43 L73.43 36.19 L50 22.34 Z" />
+    </symbol>
+  </svg>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <svg class="brand-logo" aria-hidden="true"><use href="#hf-mark" /></svg>
+        <div class="brand-text">
+          <span class="brand-name">HYDROCARBON FORGE</span>
+          <span class="brand-tag">CONSOLE</span>
+        </div>
+      </div>
+
+      <nav class="nav-tabs" role="tablist" aria-label="Console Navigation">
+        <button class="nav-tab" id="nav-insights" data-tab="insights" role="tab" aria-selected="false">
+          <span class="tab-label">INSIGHTS</span>
+          <span class="tab-key">1</span>
+        </button>
+        <button class="nav-tab" id="nav-ideas" data-tab="ideas" role="tab" aria-selected="false">
+          <span class="tab-label">IDEAS</span>
+          <span class="tab-key">2</span>
+        </button>
+        <button class="nav-tab active" id="nav-flow" data-tab="flow" role="tab" aria-selected="true">
+          <span class="tab-label">FLOW</span>
+          <span class="tab-key">3</span>
+        </button>
+        <button class="nav-tab" id="nav-projects" data-tab="projects" role="tab" aria-selected="false">
+          <span class="tab-label">PROJECTS</span>
+          <span class="tab-key">4</span>
+        </button>
+      </nav>
+
+      <div class="topbar-status">
+        <div class="service-strip" id="service-strip" title="Forge Services Health">
+          <span class="strip-label">SERVICES</span>
+          <div class="strip-dots" id="strip-dots">
+            <span class="sdot sdot-insights" title="insights-board: checking"></span>
+            <span class="sdot sdot-scheme" title="scheme-board: checking"></span>
+            <span class="sdot sdot-console" title="forge-console: checking"></span>
+          </div>
+          <span class="strip-summary" id="strip-summary">-- UP</span>
+        </div>
+        <div class="clock" id="live-clock">00:00:00</div>
+        <button class="help-btn" id="btn-help" title="Keyboard Shortcuts (?)">?</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Global Error / Offline Alert Banner -->
+  <div class="alert-banner" id="global-alert-banner" style="display:none;">
+    <span class="alert-icon">!</span>
+    <span class="alert-msg" id="global-alert-msg">Service unreachable</span>
+    <button class="alert-close" id="btn-alert-close">&times;</button>
+  </div>
+
+  <!-- Main Viewport -->
+  <main class="viewport">
+
+    <!-- ==================== TAB 1: INSIGHTS ==================== -->
+    <section class="tab-pane iframe-pane" id="pane-insights" role="tabpanel" style="display:none;">
+      <iframe class="tab-iframe" id="iframe-insights" src="/insights/" title="Insights Board"></iframe>
+    </section>
+
+    <!-- ==================== TAB 2: IDEAS ==================== -->
+    <section class="tab-pane iframe-pane" id="pane-ideas" role="tabpanel" style="display:none;">
+      <iframe class="tab-iframe" id="iframe-ideas" src="/ideas/" title="Ideas Board"></iframe>
+    </section>
+
+    <!-- ==================== TAB 3: FLOW (CENTERPIECE) ==================== -->
+    <section class="tab-pane active" id="pane-flow" role="tabpanel">
+      <div class="flow-viewport" id="flow-viewport">
+        <!-- Interactive Canvas -->
+        <canvas id="flow-canvas"></canvas>
+
+        <!-- Canvas Floating HUD: Stats Overview -->
+        <div class="flow-hud-top">
+          <div class="hud-pill" id="hud-harness-status">
+            <span class="hud-dot" id="hud-dot-harness"></span>
+            <span class="hud-title">HARNESSES:</span>
+            <span class="hud-val" id="hud-val-harness">4 Tracked</span>
+          </div>
+          <div class="hud-pill" id="hud-fs-status">
+            <span class="hud-dot active" id="hud-dot-fs"></span>
+            <span class="hud-title">FILESYSTEM:</span>
+            <span class="hud-val" id="hud-val-fs">-- Changes</span>
+          </div>
+          <div class="hud-pill" id="hud-srv-status">
+            <span class="hud-dot green" id="hud-dot-srv"></span>
+            <span class="hud-title">SERVICES:</span>
+            <span class="hud-val" id="hud-val-srv">-- Active</span>
+          </div>
+          <div class="hud-pill" id="hud-db-status">
+            <span class="hud-dot" id="hud-dot-db"></span>
+            <span class="hud-title">DATA STORES:</span>
+            <span class="hud-val" id="hud-val-db">5 Databases</span>
+          </div>
+        </div>
+
+        <!-- Canvas Controls -->
+        <div class="flow-hud-controls">
+          <button class="flow-ctrl-btn" id="btn-flow-zoom-in" title="Zoom In">+</button>
+          <button class="flow-ctrl-btn" id="btn-flow-zoom-out" title="Zoom Out">&minus;</button>
+          <button class="flow-ctrl-btn" id="btn-flow-recenter" title="Recenter View">&#x2316;</button>
+          <button class="flow-ctrl-btn" id="btn-flow-motion" title="Toggle Motion Animation">&#x2699;</button>
+        </div>
+
+        <!-- Flow Canvas Legend -->
+        <div class="flow-hud-legend" title="Dots travel along edges on active activity &middot; click node for inspection">
+          <div class="legend-row">
+            <span class="legend-swatch" style="background:#FF8C42"></span> The Forge
+            <span class="legend-swatch" style="background:#38BDF8; margin-left:6px;"></span> Harness
+            <span class="legend-swatch" style="background:#5AA9E6; margin-left:6px;"></span> Project
+            <span class="legend-swatch" style="background:#5AD6A0; margin-left:6px;"></span> Service
+            <span class="legend-swatch" style="background:#B5E48C; margin-left:6px;"></span> Data Stores
+          </div>
+        </div>
+
+        <!-- Canvas Hover Tooltip -->
+        <div class="flow-tooltip" id="flow-tooltip" style="display:none;"></div>
+
+        <!-- Flow Side Detail Panel -->
+        <aside class="flow-detail-drawer" id="flow-detail-drawer" style="display:none;">
+          <div class="drawer-header">
+            <div class="drawer-header-left">
+              <span class="node-badge" id="flow-panel-type">NODE</span>
+              <div class="drawer-title" id="flow-panel-title">Node Detail</div>
+            </div>
+            <button class="drawer-close" id="btn-close-flow-drawer">&times;</button>
+          </div>
+          <div class="drawer-body" id="flow-panel-body">
+            <!-- Dynamically populated on node click -->
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: PROJECTS ==================== -->
+    <section class="tab-pane" id="pane-projects" role="tabpanel" style="display:none;">
+      <div class="projects-container">
+
+        <!-- Projects List View -->
+        <div id="projects-list-view">
+          <div class="projects-header">
+            <div class="projects-header-left">
+              <h2 class="projects-title">CENTRAL PROJECT DIRECTORY</h2>
+              <span class="projects-count-badge" id="projects-count-badge">0 PROJECTS</span>
+            </div>
+            <div class="projects-header-actions">
+              <input type="text" id="projects-search-input" class="projects-search" placeholder="Filter projects...">
+              <button class="btn primary" id="btn-open-add-project">+ NEW PROJECT</button>
+            </div>
+          </div>
+
+          <div class="projects-table-wrap table-scroll">
+            <table class="data-table" id="projects-table">
+              <thead>
+                <tr>
+                  <th style="width: 200px;">PROJECT</th>
+                  <th>DESCRIPTION</th>
+                  <th style="width: 170px;">SERVICE</th>
+                  <th style="width: 140px;">DEPLOYMENT</th>
+                  <th style="width: 110px;">UPDATED</th>
+                </tr>
+              </thead>
+              <tbody id="projects-table-body">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Project Detail View (#/projects/<id>) -->
+        <div id="project-detail-view" style="display:none;">
+          <div class="project-detail-header">
+            <button class="btn" id="btn-back-to-projects">← ALL PROJECTS</button>
+            <div class="project-detail-actions">
+              <button class="btn" id="btn-edit-project">EDIT PROJECT</button>
+              <button class="btn danger" id="btn-delete-project">DELETE</button>
+            </div>
+          </div>
+
+          <div class="project-detail-content" id="project-detail-content">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Add Project Modal -->
+  <div class="modal-backdrop" id="modal-add-project" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span class="modal-title">ADD NEW PROJECT</span>
+        <button class="modal-close" id="btn-close-add-project">&times;</button>
+      </div>
+      <form class="modal-form" id="form-add-project">
+        <div class="form-group">
+          <label for="add-proj-name">Project Name *</label>
+          <input type="text" id="add-proj-name" required placeholder="e.g. Reelsmax">
+        </div>
+        <div class="form-group">
+          <label for="add-proj-id">Slug ID * (lowercase, digits, -, _)</label>
+          <input type="text" id="add-proj-id" required placeholder="reelsmax">
+        </div>
+        <div class="form-group">
+          <label for="add-proj-path">Path</label>
+          <input type="text" id="add-proj-path" placeholder="~/HydrocarbonForge/Projects/reelsmax">
+        </div>
+        <div class="form-group">
+          <label for="add-proj-desc">Description</label>
+          <textarea id="add-proj-desc" rows="2" placeholder="Brief project summary"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="add-proj-service">Systemd Service (optional)</label>
+          <input type="text" id="add-proj-service" placeholder="reelsmax.service">
+        </div>
+        <div class="form-group">
+          <label for="add-proj-tags">Tags (comma-separated)</label>
+          <input type="text" id="add-proj-tags" placeholder="media, shorts, wall">
+        </div>
+        <div class="form-group form-check">
+          <label>
+            <input type="checkbox" id="add-proj-deployed"> Project is Deployed
+          </label>
+        </div>
+        <div class="form-group" id="add-proj-url-group">
+          <label for="add-proj-url">Deployment URL (http/https)</label>
+          <input type="url" id="add-proj-url" placeholder="http://192.168.1.201:8905">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btn-cancel-add-project">Cancel</button>
+          <button type="submit" class="btn primary">Create Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Project Modal -->
+  <div class="modal-backdrop" id="modal-edit-project" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <span class="modal-title">EDIT PROJECT</span>
+        <button class="modal-close" id="btn-close-edit-project">&times;</button>
+      </div>
+      <form class="modal-form" id="form-edit-project">
+        <input type="hidden" id="edit-proj-id">
+        <div class="form-group">
+          <label for="edit-proj-name">Project Name</label>
+          <input type="text" id="edit-proj-name" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-proj-path">Path</label>
+          <input type="text" id="edit-proj-path">
+        </div>
+        <div class="form-group">
+          <label for="edit-proj-desc">Description</label>
+          <textarea id="edit-proj-desc" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="edit-proj-service">Systemd Service</label>
+          <input type="text" id="edit-proj-service">
+        </div>
+        <div class="form-group">
+          <label for="edit-proj-tags">Tags (comma-separated)</label>
+          <input type="text" id="edit-proj-tags">
+        </div>
+        <div class="form-group form-check">
+          <label>
+            <input type="checkbox" id="edit-proj-deployed"> Project is Deployed
+          </label>
+        </div>
+        <div class="form-group" id="edit-proj-url-group">
+          <label for="edit-proj-url">Deployment URL (http/https)</label>
+          <input type="url" id="edit-proj-url">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="btn-cancel-edit-project">Cancel</button>
+          <button type="submit" class="btn primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcut Modal -->
+  <div class="modal-backdrop" id="modal-shortcuts" style="display:none;">
+    <div class="modal-dialog modal-small">
+      <div class="modal-header">
+        <span class="modal-title">KEYBOARD SHORTCUTS</span>
+        <button class="modal-close" id="btn-close-shortcuts">&times;</button>
+      </div>
+      <div class="shortcuts-list">
+        <div class="shortcut-item"><kbd>1</kbd><span>Switch to Insights Tab</span></div>
+        <div class="shortcut-item"><kbd>2</kbd><span>Switch to Ideas Tab</span></div>
+        <div class="shortcut-item"><kbd>3</kbd><span>Switch to Flow Tab (Centerpiece)</span></div>
+        <div class="shortcut-item"><kbd>4</kbd><span>Switch to Projects Tab</span></div>
+        <div class="shortcut-item"><kbd>?</kbd><span>Show / Hide this shortcut sheet</span></div>
+        <div class="shortcut-item"><kbd>Esc</kbd><span>Close modals and side inspection drawers</span></div>
+        <div class="shortcut-item"><kbd>Space</kbd><span>Recenter Flow Canvas</span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

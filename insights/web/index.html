@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hydrocarbon Forge — Insights Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">HYDROCARBON FORGE</span>
+      <span class="tag">INSIGHTS</span>
+    </div>
+    <div class="topbar-right">
+      <div class="seg" id="period" role="tablist" aria-label="period">
+        <button data-days="1">1D</button>
+        <button data-days="7">7D</button>
+        <button data-days="30" class="active">30D</button>
+        <button data-days="90">90D</button>
+        <button data-days="all">ALL</button>
+      </div>
+      <div class="live"><span class="dot" id="livedot"></span><span id="livetext">LIVE</span></div>
+      <div class="updated">updated <span id="updated">—</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="offline">BOARD OFFLINE — RETRYING…</div>
+  <div id="empty">NO SESSIONS IN WINDOW</div>
+
+  <div id="board">
+  <section class="panel srcbar">
+    <h2>Usage source</h2>
+    <div class="rule"></div>
+    <div class="seg" id="source-pick" role="tablist" aria-label="usage source"></div>
+    <div class="micro" id="srcbar-sub" style="margin-top:8px">billable tokens in window · click a source to filter the board</div>
+  </section>
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h2>Token Flow</h2>
+      <label class="cr-toggle micro" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+        <input type="checkbox" id="flow-show-cr"> Show cache read
+      </label>
+    </div>
+    <div class="micro" id="flow-sub">daily tokens · input / output</div>
+    <div class="rule"></div>
+    <div style="position:relative">
+      <svg id="flow" width="100%" height="240" viewBox="0 0 1000 240" preserveAspectRatio="none" style="width:100%;height:240px;display:block"></svg>
+      <div class="tooltip" id="flow-tip"></div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:#ff5a5a"></i>input</span>
+      <span><i class="sw" style="background:#5aa9e6"></i>output</span>
+      <span><i class="sw" style="background:#5ad6a0"></i>cache read</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Models</h2>
+    <div class="rule"></div>
+    <div style="overflow-x:auto">
+    <table id="models"><thead><tr>
+      <th>Model</th><th></th><th>Sess</th><th>Billable tok</th><th>Cost</th><th></th>
+    </tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Top Tools</h2>
+    <div class="rule"></div>
+    <div id="tools"></div>
+  </section>
+
+  <div class="row2">
+    <section class="panel">
+      <h2>Activity — 24h</h2>
+      <div class="rule"></div>
+      <div class="hourstrip" id="hours"></div>
+      <div class="micro" style="margin-top:6px" id="hour-axis">00 → 23 local</div>
+      <div class="callouts" id="callouts"></div>
+    </section>
+    <section class="panel">
+      <h2>Notable Sessions</h2>
+      <div class="rule"></div>
+      <table id="tops"><thead><tr><th>Label</th><th>Value</th><th>Date</th><th>Title</th></tr></thead><tbody></tbody></table>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Skills</h2>
+    <div class="rule"></div>
+    <div class="callouts" id="skill-summary"></div>
+    <table id="skills"><thead><tr><th>Skill</th><th>Views</th><th>Edits</th><th>Last used</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="panel">
+    <h2>What it would cost if we were paying</h2>
+    <div class="rule"></div>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-end">
+      <div><div class="micro">Total (priced models)</div><div class="cost-big" id="cost-total">$0.00</div></div>
+      <div><div class="micro">Per day</div><div class="num" style="font-size:22px" id="cost-perday">$0.00</div></div>
+      <div><div class="micro">Unpriced billable tok</div><div class="num" style="font-size:22px" id="cost-unpriced">—</div></div>
+      <div style="margin-left:auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <label class="cr-toggle" title="When on, each row adds cache_read_tokens × rate.cache_read to its cost"><input type="checkbox" id="include-cr"> Include cache re-reads</label>
+        <button class="btn" id="edit-prices">Edit prices</button>
+      </div>
+    </div>
+    <div class="micro" id="cost-src-label" style="margin-top:8px">usage source: C6 (Hermes) · opencode models are free-tier via opencode-go — unpriced until projected</div>
+    <div class="footnote">billable tokens = input + output + cache-write (what an API bill would cover) · cache re-reads are excluded by default — they're the model re-reading its own cached context, not new usage · rates from pricing.json</div>
+    <div class="rule"></div>
+    <table id="costs"><thead><tr><th>Model</th><th>In</th><th>Out</th><th>Billable $</th><th>Project as</th><th>Cache re-reads</th></tr></thead><tbody></tbody></table>
+    <div id="price-editor" style="display:none;margin-top:12px">
+      <div class="micro">Price editor — rates are $ / million tokens · posts to /api/pricing</div>
+      <div id="pe-rows"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn primary" id="pe-save">Save prices</button>
+        <button class="btn" id="pe-cancel">Cancel</button>
+        <span class="num" id="pe-status" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>hermes state.db · <span id="foot-age">—</span></span>
+    <span>hydrocarbon forge</span>
+  </footer>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

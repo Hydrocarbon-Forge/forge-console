@@ -1,0 +1,6 @@
+📊 Daily usage — Mon Oct 05, 2026 (10 PM ET)
+• Today: 361K in / 54K out (1 sessions) — ▼ 95% vs yesterday
+  Antigravity 361K in / 54K out
+• All-time: 24.2M in / 4.7M out · 134 sessions · $25.70
+• Top model: gemini-3.8-flash
+• Cache reads today: 3.3M — note only

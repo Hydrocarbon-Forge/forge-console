@@ -1,0 +1,29 @@
+{
+  "title": "Daily usage — Mon Oct 05 (ET)",
+  "description": "Today recorded 361K in and 54K out across 1 sessions — ▼ 95% vs yesterday.",
+  "color": 5763719,
+  "fields": [
+    {
+      "name": "Today",
+      "value": "361K in / 54K out · 1 sess",
+      "inline": true
+    },
+    {
+      "name": "All-time",
+      "value": "24.2M in / 4.7M out · 134 sess · $25.70",
+      "inline": true
+    },
+    {
+      "name": "Top model",
+      "value": "`gemini-3.8-flash` · 10.9M",
+      "inline": true
+    }
+  ],
+  "footer": {
+    "text": "insights-board · generated 10:00 PM ET"
+  },
+  "timestamp": "2026-10-05T22:00:58.357110-04:00",
+  "image": {
+    "url": ""
+  }
+}
