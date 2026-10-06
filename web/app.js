@@ -9,8 +9,11 @@
   /* ==================== STATE & CONFIG ==================== */
 
   const API = {
+    HOME: "/api/home",
     FLOW: "/api/flow",
     HEALTH: "/api/health",
+    TRADING: "/api/trading",
+    SUMMARY: "/api/summary",
     INSIGHTS: "/api/proxy/insights",
     SCHEME: "/api/proxy/scheme",
     PROJECTS: "/api/projects",
@@ -77,12 +80,20 @@
 
   // Global App State
   const state = {
-    activeTab: "flow",
+    activeTab: "home",
     isTabInitialized: {
+      home: false,
       insights: false,
       ideas: false,
       flow: false,
       projects: false,
+      office: false,
+    },
+    // Home Tab State
+    home: {
+      pollInterval: null,
+      lastData: null,
+      isPolling: false,
     },
     // Projects Tab State
     projects: {
@@ -208,7 +219,15 @@
       if (!document.hidden && state.activeTab === "flow") {
         ensureFlowLoop();
       }
+      if (!document.hidden && state.activeTab === "home") {
+        fetchHomeMetrics();
+      }
     });
+
+    // 8. Initial service strip poll
+    fetchJson(API.HEALTH).then((d) => {
+      if (d && d.services) updateServiceStrip(d.services);
+    }).catch(() => {});
   }
 
   function updateClock() {
@@ -220,8 +239,11 @@
 
   function handleHashRoute() {
     const hash = window.location.hash.toLowerCase();
-    if (hash === "#/insights") switchTab("insights", false);
+    if (hash === "" || hash === "#" || hash === "#/" || hash === "#/home") switchTab("home", false);
+    else if (hash === "#/insights") switchTab("insights", false);
     else if (hash === "#/ideas") switchTab("ideas", false);
+    else if (hash === "#/flow") switchTab("flow", false);
+    else if (hash === "#/office") switchTab("office", false);
     else if (hash.startsWith("#/projects")) {
       switchTab("projects", false);
       const parts = hash.split("/");
@@ -231,11 +253,11 @@
         showProjectsList();
       }
     }
-    else switchTab("flow", false);
+    else switchTab("home", false);
   }
 
   function switchTab(tabId, updateHash = true) {
-    if (!["insights", "ideas", "flow", "projects"].includes(tabId)) tabId = "flow";
+    if (!["home", "insights", "ideas", "flow", "projects", "office"].includes(tabId)) tabId = "home";
     state.activeTab = tabId;
 
     if (updateHash) {
@@ -264,6 +286,22 @@
       targetPane.classList.add("active");
     }
 
+    // Home tab active
+    if (tabId === "home") {
+      if (!state.isTabInitialized.home) {
+        state.isTabInitialized.home = true;
+        initHomeTab();
+      }
+      fetchHomeMetrics();
+      if (!state.home.pollInterval) {
+        state.home.pollInterval = setInterval(() => {
+          if (state.activeTab === "home" && !document.hidden) {
+            fetchHomeMetrics();
+          }
+        }, 5000);
+      }
+    }
+
     // Flow tab active: initialize if needed and cleanly re-measure and re-fit canvas
     if (tabId === "flow") {
       if (!state.isTabInitialized.flow) {
@@ -289,6 +327,17 @@
         }, 20000);
       }
     }
+
+    // Office tab active: lazy init iframe
+    if (tabId === "office") {
+      if (!state.isTabInitialized.office) {
+        state.isTabInitialized.office = true;
+        const iframeOffice = document.getElementById("iframe-office");
+        if (iframeOffice && !iframeOffice.src) {
+          iframeOffice.src = `http://${location.hostname}:8904/`;
+        }
+      }
+    }
   }
 
   function handleKeydown(e) {
@@ -300,13 +349,17 @@
     }
 
     if (e.key === "1") {
-      switchTab("insights");
+      switchTab("home");
     } else if (e.key === "2") {
-      switchTab("ideas");
+      switchTab("insights");
     } else if (e.key === "3") {
-      switchTab("flow");
+      switchTab("ideas");
     } else if (e.key === "4") {
+      switchTab("flow");
+    } else if (e.key === "5") {
       switchTab("projects");
+    } else if (e.key === "6") {
+      switchTab("office");
     } else if (e.key === "?") {
       const m = document.getElementById("modal-shortcuts");
       if (m) m.style.display = m.style.display === "none" ? "flex" : "none";
@@ -348,9 +401,361 @@
     }
   }
 
-  /* ==================== RETIRED REIMPLEMENTATIONS ==================== */
-  // Insights and Ideas reimplementations retired in Merge Brief 15.
-  // Replaced by iframes to /insights/ and /ideas/.
+  /* ==================== HOME TAB & DATA ==================== */
+
+  function initHomeTab() {
+    // 1. Jump to Office card
+    const cardOffice = document.getElementById("card-jump-office");
+    if (cardOffice) {
+      cardOffice.addEventListener("click", () => switchTab("office"));
+      cardOffice.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          switchTab("office");
+        }
+      });
+    }
+
+    // 2. Launchpad destination cards
+    document.querySelectorAll(".dest-card").forEach((card) => {
+      const target = card.getAttribute("data-launch");
+      if (target) {
+        card.addEventListener("click", () => switchTab(target));
+        card.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            switchTab(target);
+          }
+        });
+      }
+    });
+
+    // 3. Staggered reveal-in entrance
+    requestAnimationFrame(() => {
+      document.querySelectorAll("#pane-home .reveal-in").forEach((el) => {
+        el.classList.add("in");
+      });
+    });
+  }
+
+  function tweenValue(el, targetVal, formatFn, durationMs = 400) {
+    if (!el) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      el.textContent = formatFn(targetVal);
+      return;
+    }
+    const startVal = typeof el._currentVal === "number" ? el._currentVal : 0;
+    el._currentVal = targetVal;
+    if (startVal === targetVal) {
+      el.textContent = formatFn(targetVal);
+      return;
+    }
+    const startTime = performance.now();
+    function step(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1.0);
+      const ease = 1 - (1 - progress) * (1 - progress);
+      const current = startVal + (targetVal - startVal) * ease;
+      el.textContent = formatFn(current);
+      if (progress < 1.0) {
+        requestAnimationFrame(step);
+      } else {
+        el.textContent = formatFn(targetVal);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function formatCompactTokens(num) {
+    const n = Number(num || 0);
+    if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return Math.round(n).toLocaleString("en-US");
+  }
+
+  function formatAllTimeTokens(num) {
+    const n = Number(num || 0);
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return Math.round(n).toLocaleString("en-US");
+  }
+
+  function formatRelativeAge(min) {
+    if (min == null || isNaN(min)) return "—";
+    if (min < 1) return "< 1m ago";
+    if (min < 60) return `${Math.round(min)}m ago`;
+    const hrs = Math.round(min / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
+  }
+
+  async function fetchHomeMetrics() {
+    if (state.home.isPolling) return;
+    state.home.isPolling = true;
+
+    try {
+      let summaryToday = null;
+      let summaryAlltime = null;
+      let flowDoc = null;
+      let tradingDoc = null;
+      let ideasCount = null;
+
+      // 1. Try consolidated endpoint
+      try {
+        const homeAgg = await fetchJson(API.HOME);
+        if (homeAgg && homeAgg.ok) {
+          summaryToday = homeAgg.summary_today;
+          summaryAlltime = homeAgg.summary_alltime;
+          flowDoc = homeAgg.flow;
+          tradingDoc = homeAgg.trading;
+          ideasCount = homeAgg.ideas_count;
+        }
+      } catch (_) {
+        // Fall back to individual endpoints
+      }
+
+      // 2. Fetch missing items individually in parallel
+      const fetchPromises = [];
+
+      if (!summaryToday) {
+        fetchPromises.push(
+          fetchJson(`${API.SUMMARY}?days=1`)
+            .then((d) => { summaryToday = d; })
+            .catch(() => {})
+        );
+      }
+      if (!summaryAlltime) {
+        fetchPromises.push(
+          fetchJson(`${API.SUMMARY}?days=3650`)
+            .then((d) => { summaryAlltime = d; })
+            .catch(() => {})
+        );
+      }
+      if (!flowDoc) {
+        fetchPromises.push(
+          fetchJson(API.FLOW)
+            .then((d) => { flowDoc = d; })
+            .catch(() => {})
+        );
+      }
+      if (!tradingDoc) {
+        fetchPromises.push(
+          fetchJson(API.TRADING)
+            .then((d) => { tradingDoc = d; })
+            .catch(() => {})
+        );
+      }
+      if (ideasCount == null) {
+        fetchPromises.push(
+          fetchJson("/api/stats")
+            .then((d) => { ideasCount = d.total_ideas || d.ideas_count || 0; })
+            .catch(() => {})
+        );
+      }
+
+      if (fetchPromises.length > 0) {
+        await Promise.all(fetchPromises);
+      }
+
+      // Keep topbar service strip updated
+      if (flowDoc && flowDoc.services) {
+        updateServiceStrip(flowDoc.services);
+      }
+
+      // Render home dashboard
+      renderHomeMetrics({
+        summaryToday,
+        summaryAlltime,
+        flowDoc,
+        tradingDoc,
+        ideasCount,
+      });
+
+      const syncStatus = document.getElementById("home-sync-status");
+      if (syncStatus) syncStatus.textContent = "SYSTEMS ONLINE";
+      const syncTime = document.getElementById("home-sync-time");
+      if (syncTime) {
+        const now = new Date();
+        syncTime.textContent = `UPDATED ${now.toLocaleTimeString("en-GB", { hour12: false })}`;
+      }
+    } catch (err) {
+      console.warn("Home metrics poll error:", err);
+      const syncStatus = document.getElementById("home-sync-status");
+      if (syncStatus) syncStatus.textContent = "UPSTREAM DEGRADED";
+    } finally {
+      state.home.isPolling = false;
+    }
+  }
+
+  function renderHomeMetrics({ summaryToday, summaryAlltime, flowDoc, tradingDoc, ideasCount }) {
+    // 1. Tokens Today (total_tokens & billed_tokens)
+    const elTokensToday = document.getElementById("home-tokens-today");
+    const elTokensTodaySub = document.getElementById("home-tokens-today-sub");
+    if (summaryToday) {
+      const todayTotal = Number(summaryToday.total_tokens || 0);
+      const todayBilled = Number(summaryToday.billed_tokens || 0);
+      tweenValue(elTokensToday, todayTotal, (v) => formatCompactTokens(v));
+      if (elTokensTodaySub) {
+        elTokensTodaySub.textContent = `${formatCompactTokens(todayBilled)} billed / ${formatCompactTokens(todayTotal)} total`;
+      }
+      setText("dest-chip-insights", `${formatCompactTokens(todayTotal)} tkns`);
+    } else {
+      if (elTokensToday) elTokensToday.textContent = "—";
+    }
+
+    // 2. All-Time Tokens
+    const elTokensAlltime = document.getElementById("home-tokens-alltime");
+    if (summaryAlltime) {
+      const allTimeTotal = Number(summaryAlltime.total_tokens || 0);
+      tweenValue(elTokensAlltime, allTimeTotal, (v) => formatAllTimeTokens(v));
+    } else {
+      if (elTokensAlltime) elTokensAlltime.textContent = "—";
+    }
+
+    // 3. Trading Stats
+    if (tradingDoc && !tradingDoc.error) {
+      const stock = tradingDoc.stock || {};
+      const crypto = tradingDoc.crypto || {};
+      const stockEq = Number(stock.equity || 0);
+      const cryptoEq = Number(crypto.equity || 0);
+      const totalEq = stockEq + cryptoEq;
+
+      const stockDayPnl = Number(stock.day_pnl || 0);
+      const cryptoDayPnl = Number(crypto.day_pnl || 0);
+      const totalDayPnl = stockDayPnl + cryptoDayPnl;
+
+      const stockTotPnl = Number(stock.total_pnl || 0);
+      const cryptoTotPnl = Number(crypto.total_pnl || 0);
+      const totalTotPnl = stockTotPnl + cryptoTotPnl;
+
+      const stockHoldings = (stock.holdings || []).length;
+      const cryptoHoldings = (crypto.holdings || []).length;
+      const totalHoldings = stockHoldings + cryptoHoldings;
+
+      const elTradingEquity = document.getElementById("home-trading-equity");
+      tweenValue(elTradingEquity, totalEq, (v) => `$${v.toFixed(2)}`);
+
+      const elDayPnl = document.getElementById("home-trading-day-pnl");
+      if (elDayPnl) {
+        elDayPnl.textContent = `DAY: ${totalDayPnl >= 0 ? "+" : ""}$${totalDayPnl.toFixed(2)}`;
+        elDayPnl.className = `pnl-pill ${totalDayPnl >= 0 ? "pos" : "neg"}`;
+      }
+
+      const elTotPnl = document.getElementById("home-trading-total-pnl");
+      if (elTotPnl) {
+        elTotPnl.textContent = `TOT: ${totalTotPnl >= 0 ? "+" : ""}$${totalTotPnl.toFixed(2)}`;
+        elTotPnl.className = `pnl-pill ${totalTotPnl >= 0 ? "pos" : "neg"}`;
+      }
+
+      setText("home-stock-equity", `$${stockEq.toFixed(2)}`);
+      const elStockPnl = document.getElementById("home-stock-pnl");
+      if (elStockPnl) {
+        elStockPnl.textContent = `${stockDayPnl >= 0 ? "+" : ""}$${stockDayPnl.toFixed(2)} (${Number(stock.day_pct || 0).toFixed(1)}%)`;
+        elStockPnl.className = `book-sub ${stockDayPnl >= 0 ? "pos" : "neg"}`;
+      }
+
+      setText("home-crypto-equity", `$${cryptoEq.toFixed(2)}`);
+      const elCryptoPnl = document.getElementById("home-crypto-pnl");
+      if (elCryptoPnl) {
+        elCryptoPnl.textContent = `${cryptoDayPnl >= 0 ? "+" : ""}$${cryptoDayPnl.toFixed(2)} (${Number(crypto.day_pct || 0).toFixed(1)}%)`;
+        elCryptoPnl.className = `book-sub ${cryptoDayPnl >= 0 ? "pos" : "neg"}`;
+      }
+
+      setText("home-holdings-count", `${totalHoldings} total`);
+      setText("dest-chip-office", `$${totalEq.toFixed(2)} eq`);
+    } else {
+      setText("home-trading-equity", "$—");
+      setText("dest-chip-office", "Desk standby");
+    }
+
+    // 4. Running Harnesses
+    const harnesses = (flowDoc && flowDoc.harnesses) || [];
+    const runningHarnesses = harnesses.filter((h) => {
+      const isC6 = h.id === "harness-c6" || h.name === "c6";
+      return isC6
+        ? Boolean(h.running && (h.active_sessions > 0 || (h.last_active_s != null && h.last_active_s < 300)))
+        : (h.active_sessions > 0 || h.running);
+    });
+
+    const elHarnessBadge = document.getElementById("home-harness-badge");
+    if (elHarnessBadge) {
+      elHarnessBadge.textContent = `${runningHarnesses.length} RUNNING`;
+      elHarnessBadge.className = `badge-count ${runningHarnesses.length > 0 ? "live" : ""}`;
+    }
+
+    const elHarnessList = document.getElementById("home-harness-list");
+    if (elHarnessList) {
+      if (runningHarnesses.length === 0) {
+        elHarnessList.innerHTML = `<div class="harness-empty">No active harnesses</div>`;
+      } else {
+        elHarnessList.innerHTML = runningHarnesses.map((h) => `
+          <div class="harness-item running">
+            <div class="harness-left">
+              <span class="harness-pip live"></span>
+              <span class="harness-name">${escapeHtml(h.label || h.name)}</span>
+            </div>
+            <div class="harness-right">
+              <span class="harness-sessions">${h.active_sessions || 1} active</span>
+              ${h.pids && h.pids.length ? `<span class="harness-pids">PID ${h.pids[0]}</span>` : ""}
+            </div>
+          </div>
+        `).join("");
+      }
+    }
+
+    // 5. Active Projects (60m window or fallback)
+    const projects = (flowDoc && flowDoc.projects) || [];
+    let activeProjects = projects.filter((p) => p.active || (p.changes_60m && p.changes_60m > 0));
+
+    let isFallback = false;
+    if (activeProjects.length === 0 && projects.length > 0) {
+      isFallback = true;
+      activeProjects = projects.slice()
+        .sort((a, b) => (a.last_write_age_min ?? 9999) - (b.last_write_age_min ?? 9999))
+        .slice(0, 4);
+    }
+
+    const elProjBadge = document.getElementById("home-projects-badge");
+    if (elProjBadge) {
+      elProjBadge.textContent = isFallback
+        ? `${activeProjects.length} RECENT`
+        : `${activeProjects.length} ACTIVE`;
+      elProjBadge.className = `badge-count ${(!isFallback && activeProjects.length > 0) ? "live" : ""}`;
+    }
+
+    const elProjList = document.getElementById("home-projects-list");
+    if (elProjList) {
+      if (activeProjects.length === 0) {
+        elProjList.innerHTML = `<div class="projects-empty">No projects tracked</div>`;
+      } else {
+        elProjList.innerHTML = activeProjects.map((p) => `
+          <div class="project-active-item">
+            <div class="proj-act-left">
+              <span class="proj-act-dot ${(p.changes_60m && p.changes_60m > 0) ? "hot" : ""}"></span>
+              <span class="proj-act-name">${escapeHtml(p.name)}</span>
+            </div>
+            <div class="proj-act-right">
+              <span class="proj-changes-tag">${p.changes_60m || 0} changes / 60m</span>
+              <span class="proj-age-tag">${formatRelativeAge(p.last_write_age_min)}</span>
+            </div>
+          </div>
+        `).join("");
+      }
+    }
+
+    // 6. Launchpad Chips
+    if (ideasCount != null) {
+      setText("dest-chip-ideas", `${ideasCount} ideas`);
+    }
+    setText("dest-chip-projects", `${projects.length} proj`);
+
+    const services = (flowDoc && flowDoc.services) || [];
+    const servicesUp = services.filter((s) => s.status === "green").length;
+    if (services.length > 0) {
+      setText("dest-chip-flow", `${servicesUp}/${services.length} UP`);
+    }
+  }
 
   /* ==================== FLOW TAB & DATA ==================== */
 
