@@ -21,6 +21,9 @@ def billed_tokens(src, doc):
         return 0
     if src == "c6":
         return int(doc.get("billed_tokens", 0) or 0)
+    models = doc.get("models")
+    if isinstance(models, list) and len(models) > 0 and any("billed_tokens" in m for m in models):
+        return sum(int(m.get("billed_tokens", 0) or 0) for m in models)
     total = doc.get("total") or {}
     return int(total.get("input_tokens", 0) or 0) + int(total.get("output_tokens", 0) or 0)
 
