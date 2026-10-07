@@ -219,6 +219,19 @@ body {
   margin-left: 2px;
 }
 
+.nav-ext-glyph {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.65;
+  display: inline-block;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.nav-tab:hover .nav-ext-glyph {
+  opacity: 1;
+  transform: translate(1px, -1px);
+}
+
 /* Status Strip & Clock */
 .topbar-status {
   display: flex;

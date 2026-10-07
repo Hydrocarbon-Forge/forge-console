@@ -16,6 +16,7 @@ import urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 
 import collector
 
@@ -136,6 +137,124 @@ SCHEME_EXACT_ENDPOINTS = {
     "/api/stats",
     "/api/analysis",
 }
+
+
+_home_tokens_cache = {
+    "timestamp": 0.0,
+    "data": None,
+}
+_home_tokens_lock = threading.Lock()
+_home_executor = ThreadPoolExecutor(max_workers=9, thread_name_prefix="home_tokens")
+
+
+def _fetch_insights_json(endpoint):
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{INSIGHTS_PORT}{endpoint}")
+        req.add_header("User-Agent", "ForgeConsole/1.0")
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            if resp.status == 200:
+                return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        pass
+    return None
+
+
+def _extract_source_billed(src, doc):
+    if doc is None:
+        return None
+    if src == "c6":
+        return doc.get("billed_tokens", 0)
+    total = doc.get("total")
+    if isinstance(total, dict):
+        return int(total.get("input_tokens", 0) or 0) + int(total.get("output_tokens", 0) or 0)
+    models = doc.get("models") or []
+    return sum(int(m.get("input_tokens", 0) or 0) + int(m.get("output_tokens", 0) or 0) for m in models)
+
+
+def get_home_tokens_aggregate():
+    """
+    Fetches token metrics across all 4 harnesses (C6, OpenCode, Claude Code, Antigravity)
+    for today (days=1) and all-time (days=all) plus 7d daily series.
+    Cached for up to 3.0 seconds to keep repeated/parallel requests fast.
+    """
+    now = time.time()
+    with _home_tokens_lock:
+        if _home_tokens_cache["data"] is not None and (now - _home_tokens_cache["timestamp"] < 3.0):
+            return _home_tokens_cache["data"]
+
+    endpoints = {
+        "c6_1d": "/api/summary?days=1",
+        "op_1d": "/api/opencode?days=1",
+        "cc_1d": "/api/claudecode?days=1",
+        "ag_1d": "/api/antigravity?days=1",
+        "c6_all": "/api/summary?days=all",
+        "op_all": "/api/opencode?days=all",
+        "cc_all": "/api/claudecode?days=all",
+        "ag_all": "/api/antigravity?days=all",
+        "c6_act7": "/api/activity?days=7",
+    }
+
+    keys = list(endpoints.keys())
+    futures = _home_executor.map(_fetch_insights_json, [endpoints[k] for k in keys])
+    res = dict(zip(keys, futures))
+
+    today_by_src = {
+        "c6": _extract_source_billed("c6", res["c6_1d"]),
+        "opencode": _extract_source_billed("opencode", res["op_1d"]),
+        "claudecode": _extract_source_billed("claudecode", res["cc_1d"]),
+        "antigravity": _extract_source_billed("antigravity", res["ag_1d"]),
+    }
+    today_total = sum(v for v in today_by_src.values() if v is not None)
+
+    alltime_by_src = {
+        "c6": _extract_source_billed("c6", res["c6_all"]),
+        "opencode": _extract_source_billed("opencode", res["op_all"]),
+        "claudecode": _extract_source_billed("claudecode", res["cc_all"]),
+        "antigravity": _extract_source_billed("antigravity", res["ag_all"]),
+    }
+    alltime_total = sum(v for v in alltime_by_src.values() if v is not None)
+
+    daily_billed_map = {}
+    for doc, is_c6 in [(res["c6_act7"], True), (res["op_all"], False), (res["cc_all"], False), (res["ag_all"], False)]:
+        if not doc:
+            continue
+        daily = doc.get("daily") or []
+        if len(daily) > 7:
+            daily = daily[-7:]
+        for row in daily:
+            dt = row.get("date")
+            if not dt:
+                continue
+            cw = row.get("cache_write_tokens", 0) if is_c6 else 0
+            b = int(row.get("input_tokens", 0) or 0) + int(row.get("output_tokens", 0) or 0) + int(cw or 0)
+            daily_billed_map[dt] = daily_billed_map.get(dt, 0) + b
+
+    sorted_dates = sorted(daily_billed_map.keys())
+    activity_7d = {
+        "days": "7",
+        "daily": [{"date": dt, "billed_tokens": daily_billed_map[dt]} for dt in sorted_dates],
+        "total": sum(daily_billed_map.values()),
+    }
+
+    data = {
+        "billed_today_by_source": {
+            "total": today_total,
+            "by_source": today_by_src,
+        },
+        "billed_alltime_by_source": {
+            "total": alltime_total,
+            "by_source": alltime_by_src,
+        },
+        "activity_7d": activity_7d,
+        "summary_today": res["c6_1d"],
+        "summary_alltime": res["c6_all"],
+    }
+
+    with _home_tokens_lock:
+        _home_tokens_cache["timestamp"] = time.time()
+        _home_tokens_cache["data"] = data
+
+    return data
 
 
 class ForgeConsoleHandler(BaseHTTPRequestHandler):
@@ -384,37 +503,19 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
+
     def handle_home(self):
-        """Returns consolidated home dashboard payload (summary 1d, 3650d, flow, trading)."""
+        """Returns consolidated home dashboard payload with all-sources billable tokens."""
         with _flow_lock:
             cached_flow = _flow_cache or {}
 
         trading_data, _ = fetch_trading_data()
 
-        # Summary 1d
-        summary_1d = None
-        try:
-            req = urllib.request.Request("http://127.0.0.1:8901/api/summary?days=1")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                if resp.status == 200:
-                    summary_1d = json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            pass
-
-        # Summary 3650d
-        summary_alltime = None
-        try:
-            req = urllib.request.Request("http://127.0.0.1:8901/api/summary?days=3650")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                if resp.status == 200:
-                    summary_alltime = json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            pass
-
         # Scheme stats (ideas count)
         ideas_count = 0
         try:
-            req = urllib.request.Request("http://127.0.0.1:8902/api/stats")
+            req = urllib.request.Request(f"http://127.0.0.1:{IDEAS_PORT}/api/stats")
             with urllib.request.urlopen(req, timeout=1.5) as resp:
                 if resp.status == 200:
                     stats_doc = json.loads(resp.read().decode("utf-8"))
@@ -423,21 +524,15 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        # 7-day token activity (for compute engine sparkline)
-        activity_7d = None
-        try:
-            req = urllib.request.Request("http://127.0.0.1:8901/api/activity?days=7")
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
-                if resp.status == 200:
-                    activity_7d = json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            pass
+        tokens_data = get_home_tokens_aggregate()
 
         payload = {
             "ok": True,
-            "summary_today": summary_1d,
-            "summary_alltime": summary_alltime,
-            "activity_7d": activity_7d,
+            "billed_today_by_source": tokens_data["billed_today_by_source"],
+            "billed_alltime_by_source": tokens_data["billed_alltime_by_source"],
+            "summary_today": tokens_data["summary_today"],
+            "summary_alltime": tokens_data["summary_alltime"],
+            "activity_7d": tokens_data["activity_7d"],
             "flow": {
                 "harnesses": cached_flow.get("harnesses", []),
                 "projects": cached_flow.get("projects", []),

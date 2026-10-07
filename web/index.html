@@ -78,13 +78,13 @@
           <span class="tab-label">PROJECTS</span>
           <span class="tab-key">5</span>
         </button>
-        <button class="nav-tab" id="nav-office" data-tab="office" role="tab" aria-selected="false">
+        <button class="nav-tab nav-tab-ext" id="nav-office" data-tab="office" role="tab" aria-selected="false" title="Launch Office (external)">
           <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16" />
             <path d="M17 9h3a2 2 0 0 1 2 2v10" />
             <path d="M8 7h4M8 11h4M8 15h4M11 21v-3H8v3" />
           </svg>
-          <span class="tab-label">OFFICE</span>
+          <span class="tab-label">OFFICE <span class="nav-ext-glyph">&nearr;</span></span>
           <span class="tab-key">6</span>
         </button>
       </nav>
@@ -153,33 +153,33 @@
               </div>
               <div class="compute-hero-stats">
                 <div class="metric-block">
-                  <div class="metric-label">TODAY'S TOKENS <span class="metric-sublabel">(BILLED / TOTAL)</span></div>
+                  <div class="metric-label">TODAY &middot; BILLED <span class="metric-sublabel">(ALL SOURCES)</span></div>
                   <div class="metric-val mono" id="home-tokens-today">--</div>
-                  <div class="metric-detail" id="home-tokens-today-sub">-- billed / -- total</div>
+                  <div class="metric-detail" id="home-tokens-today-sub">--</div>
                 </div>
                 <div class="metric-divider"></div>
                 <div class="metric-block">
-                  <div class="metric-label">ALL-TIME TOKENS <span class="metric-sublabel">(3650D WINDOW)</span></div>
+                  <div class="metric-label">ALL-TIME &middot; BILLED <span class="metric-sublabel">(ALL SOURCES)</span></div>
                   <div class="metric-val mono" id="home-tokens-alltime">--</div>
-                  <div class="metric-detail" id="home-tokens-alltime-sub">Cumulative tokens ingested</div>
+                  <div class="metric-detail" id="home-tokens-alltime-sub">--</div>
                 </div>
               </div>
               <div class="compute-sparkline-row">
                 <div class="sparkline-meta">
-                  <span class="sparkline-label">7D ACTIVITY</span>
+                  <span class="sparkline-label">7D BILLED</span>
                   <span class="sparkline-val" id="home-compute-sparkline-val">--</span>
                 </div>
                 <div class="sparkline-chart-wrap">
-                  <svg class="compute-sparkline" id="home-compute-sparkline" viewBox="0 0 200 36" preserveAspectRatio="none" aria-label="7-day token sparkline"></svg>
+                  <svg class="compute-sparkline" id="home-compute-sparkline" viewBox="0 0 200 36" preserveAspectRatio="none" aria-label="7-day billable token sparkline"></svg>
                 </div>
               </div>
             </div>
 
             <!-- Office Treasury (Trading Stats) -->
-            <div class="forge-card home-card-trading clickable" id="card-jump-office" title="Click to launch Office" role="button" tabindex="0">
+            <div class="forge-card home-card-trading clickable" id="card-jump-office" title="Launch Office (external)" role="button" tabindex="0">
               <div class="card-head">
                 <div class="card-tag">OFFICE TREASURY</div>
-                <div class="card-action-hint">LAUNCH OFFICE &rarr;</div>
+                <div class="card-action-hint">LAUNCH OFFICE &nearr;</div>
               </div>
               <div class="trading-hero-stats">
                 <div class="trading-main-stat">
@@ -308,7 +308,7 @@
               </div>
 
               <!-- Office Launchpad -->
-              <div class="dest-card" data-launch="office" id="launch-office" role="button" tabindex="0">
+              <div class="dest-card" data-launch="office" id="launch-office" role="button" tabindex="0" title="Launch Office (external)">
                 <div class="dest-top">
                   <svg class="dest-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16" />
@@ -319,7 +319,7 @@
                 </div>
                 <div class="dest-title">OFFICE</div>
                 <div class="dest-desc">Live agent headquarters, desk status, stock &amp; crypto trading floor</div>
-                <div class="dest-footer"><span>LAUNCH PANE [6]</span> &rarr;</div>
+                <div class="dest-footer"><span>LAUNCH OFFICE [6]</span> &nearr;</div>
               </div>
             </div>
           </div>
@@ -458,10 +458,7 @@
       </div>
     </section>
 
-    <!-- ==================== TAB 5: OFFICE ==================== -->
-    <section class="tab-pane iframe-pane" id="pane-office" role="tabpanel" style="display:none;">
-      <iframe class="tab-iframe" id="iframe-office" title="Office Board"></iframe>
-    </section>
+
 
   </main>
 
@@ -573,7 +570,7 @@
         <div class="shortcut-item"><kbd>3</kbd><span>Switch to Ideas Tab</span></div>
         <div class="shortcut-item"><kbd>4</kbd><span>Switch to Flow Tab</span></div>
         <div class="shortcut-item"><kbd>5</kbd><span>Switch to Projects Tab</span></div>
-        <div class="shortcut-item"><kbd>6</kbd><span>Switch to Office Tab</span></div>
+        <div class="shortcut-item"><kbd>6</kbd><span>Launch Office (redirect &nearr;)</span></div>
         <div class="shortcut-item"><kbd>?</kbd><span>Show / Hide this shortcut sheet</span></div>
         <div class="shortcut-item"><kbd>Esc</kbd><span>Close modals and side inspection drawers</span></div>
         <div class="shortcut-item"><kbd>Space</kbd><span>Recenter Flow Canvas (when on Flow tab)</span></div>

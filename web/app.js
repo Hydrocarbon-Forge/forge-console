@@ -87,7 +87,6 @@
       ideas: false,
       flow: false,
       projects: false,
-      office: false,
     },
     // Home Tab State
     home: {
@@ -163,6 +162,19 @@
     },
   };
 
+  function getOfficeUrl() {
+    return `http://${window.location.hostname}:8904/`;
+  }
+
+  function launchOffice() {
+    const url = getOfficeUrl();
+    if (typeof window._officeRedirectInterceptor === "function") {
+      window._officeRedirectInterceptor(url);
+      return;
+    }
+    window.location.href = url;
+  }
+
   /* ==================== SHELL & NAVIGATION ==================== */
 
   function initShell() {
@@ -174,6 +186,10 @@
     document.querySelectorAll(".nav-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         const tab = btn.getAttribute("data-tab");
+        if (tab === "office") {
+          launchOffice();
+          return;
+        }
         switchTab(tab);
       });
     });
@@ -243,7 +259,10 @@
     else if (hash === "#/insights") switchTab("insights", false);
     else if (hash === "#/ideas") switchTab("ideas", false);
     else if (hash === "#/flow") switchTab("flow", false);
-    else if (hash === "#/office") switchTab("office", false);
+    else if (hash === "#/office" || hash === "#office") {
+      launchOffice();
+      return;
+    }
     else if (hash.startsWith("#/projects")) {
       switchTab("projects", false);
       const parts = hash.split("/");
@@ -257,7 +276,11 @@
   }
 
   function switchTab(tabId, updateHash = true) {
-    if (!["home", "insights", "ideas", "flow", "projects", "office"].includes(tabId)) tabId = "home";
+    if (tabId === "office") {
+      launchOffice();
+      return;
+    }
+    if (!["home", "insights", "ideas", "flow", "projects"].includes(tabId)) tabId = "home";
     state.activeTab = tabId;
 
     if (updateHash) {
@@ -327,17 +350,6 @@
         }, 20000);
       }
     }
-
-    // Office tab active: lazy init iframe
-    if (tabId === "office") {
-      if (!state.isTabInitialized.office) {
-        state.isTabInitialized.office = true;
-        const iframeOffice = document.getElementById("iframe-office");
-        if (iframeOffice && !iframeOffice.src) {
-          iframeOffice.src = `http://${location.hostname}:8904/`;
-        }
-      }
-    }
   }
 
   function handleKeydown(e) {
@@ -359,7 +371,7 @@
     } else if (e.key === "5") {
       switchTab("projects");
     } else if (e.key === "6") {
-      switchTab("office");
+      launchOffice();
     } else if (e.key === "?") {
       const m = document.getElementById("modal-shortcuts");
       if (m) m.style.display = m.style.display === "none" ? "flex" : "none";
@@ -407,11 +419,11 @@
     // 1. Jump to Office card
     const cardOffice = document.getElementById("card-jump-office");
     if (cardOffice) {
-      cardOffice.addEventListener("click", () => switchTab("office"));
+      cardOffice.addEventListener("click", () => launchOffice());
       cardOffice.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          switchTab("office");
+          launchOffice();
         }
       });
     }
@@ -420,10 +432,20 @@
     document.querySelectorAll(".dest-card").forEach((card) => {
       const target = card.getAttribute("data-launch");
       if (target) {
-        card.addEventListener("click", () => switchTab(target));
+        card.addEventListener("click", () => {
+          if (target === "office") {
+            launchOffice();
+            return;
+          }
+          switchTab(target);
+        });
         card.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
+            if (target === "office") {
+              launchOffice();
+              return;
+            }
             switchTab(target);
           }
         });
@@ -481,6 +503,25 @@
     return Math.round(n).toLocaleString("en-US");
   }
 
+  function formatSourceTokens(val) {
+    if (val == null || isNaN(val)) return "—";
+    const n = Number(val);
+    if (n === 0) return "0";
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+    if (n >= 100_000) return (n / 1e6).toFixed(1) + "M";
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + "k";
+    return Math.round(n).toString();
+  }
+
+  function formatSourceBreakdown(bySource) {
+    if (!bySource) return "—";
+    const c6 = formatSourceTokens(bySource.c6);
+    const op = formatSourceTokens(bySource.opencode);
+    const cc = formatSourceTokens(bySource.claudecode);
+    const ag = formatSourceTokens(bySource.antigravity);
+    return `c6 ${c6} · opencode ${op} · claude ${cc} · agy ${ag}`;
+  }
+
   function formatRelativeAge(min) {
     if (min == null || isNaN(min)) return "—";
     if (min < 1) return "< 1m ago";
@@ -495,6 +536,8 @@
     state.home.isPolling = true;
 
     try {
+      let billedToday = null;
+      let billedAlltime = null;
       let summaryToday = null;
       let summaryAlltime = null;
       let flowDoc = null;
@@ -506,6 +549,8 @@
       try {
         const homeAgg = await fetchJson(API.HOME);
         if (homeAgg && homeAgg.ok) {
+          billedToday = homeAgg.billed_today_by_source;
+          billedAlltime = homeAgg.billed_alltime_by_source;
           summaryToday = homeAgg.summary_today;
           summaryAlltime = homeAgg.summary_alltime;
           activity7d = homeAgg.activity_7d;
@@ -520,20 +565,59 @@
       // 2. Fetch missing items individually in parallel
       const fetchPromises = [];
 
-      if (!summaryToday) {
+      function extractBilled(src, doc) {
+        if (!doc) return null;
+        if (src === "c6") return Number(doc.billed_tokens || 0);
+        const total = doc.total;
+        if (total && typeof total === "object") {
+          return Number(total.input_tokens || 0) + Number(total.output_tokens || 0);
+        }
+        const models = Array.isArray(doc.models) ? doc.models : [];
+        return models.reduce((acc, m) => acc + Number(m.input_tokens || 0) + Number(m.output_tokens || 0), 0);
+      }
+
+      if (!billedToday) {
         fetchPromises.push(
-          fetchJson(`${API.SUMMARY}?days=1`)
-            .then((d) => { summaryToday = d; })
-            .catch(() => {})
+          Promise.all([
+            fetchJson(`${API.SUMMARY}?days=1`).catch(() => null),
+            fetchJson("/api/opencode?days=1").catch(() => null),
+            fetchJson("/api/claudecode?days=1").catch(() => null),
+            fetchJson("/api/antigravity?days=1").catch(() => null),
+          ]).then(([c6, op, cc, ag]) => {
+            const bySource = {
+              c6: extractBilled("c6", c6),
+              opencode: extractBilled("opencode", op),
+              claudecode: extractBilled("claudecode", cc),
+              antigravity: extractBilled("antigravity", ag),
+            };
+            const total = Object.values(bySource).reduce((acc, v) => acc + (v != null ? v : 0), 0);
+            billedToday = { total, by_source: bySource };
+            summaryToday = c6;
+          })
         );
       }
-      if (!summaryAlltime) {
+
+      if (!billedAlltime) {
         fetchPromises.push(
-          fetchJson(`${API.SUMMARY}?days=3650`)
-            .then((d) => { summaryAlltime = d; })
-            .catch(() => {})
+          Promise.all([
+            fetchJson(`${API.SUMMARY}?days=all`).catch(() => null),
+            fetchJson("/api/opencode?days=all").catch(() => null),
+            fetchJson("/api/claudecode?days=all").catch(() => null),
+            fetchJson("/api/antigravity?days=all").catch(() => null),
+          ]).then(([c6, op, cc, ag]) => {
+            const bySource = {
+              c6: extractBilled("c6", c6),
+              opencode: extractBilled("opencode", op),
+              claudecode: extractBilled("claudecode", cc),
+              antigravity: extractBilled("antigravity", ag),
+            };
+            const total = Object.values(bySource).reduce((acc, v) => acc + (v != null ? v : 0), 0);
+            billedAlltime = { total, by_source: bySource };
+            summaryAlltime = c6;
+          })
         );
       }
+
       if (!activity7d) {
         fetchPromises.push(
           fetchJson("/api/activity?days=7")
@@ -579,6 +663,8 @@
 
       // Render home dashboard
       renderHomeMetrics({
+        billedToday,
+        billedAlltime,
         summaryToday,
         summaryAlltime,
         flowDoc,
@@ -610,7 +696,7 @@
 
     let points = [];
     if (activityDoc && Array.isArray(activityDoc.daily) && activityDoc.daily.length > 0) {
-      points = activityDoc.daily.map((d) => Number(d.total_tokens || 0));
+      points = activityDoc.daily.map((d) => Number(d.billed_tokens != null ? d.billed_tokens : (d.total_tokens || 0)));
     } else if (activityDoc && Array.isArray(activityDoc.by_day) && activityDoc.by_day.length > 0) {
       points = activityDoc.by_day.map((v) => Number(v || 0));
     }
@@ -659,29 +745,56 @@
     `;
   }
 
-  function renderHomeMetrics({ summaryToday, summaryAlltime, flowDoc, tradingDoc, ideasCount, activity7d }) {
-    // 1. Tokens Today (total_tokens & billed_tokens)
+  function renderHomeMetrics({
+    billedToday,
+    billedAlltime,
+    summaryToday,
+    summaryAlltime,
+    flowDoc,
+    tradingDoc,
+    ideasCount,
+    activity7d,
+  }) {
+    // 1. Tokens Today (billable tokens, all four sources combined)
     const elTokensToday = document.getElementById("home-tokens-today");
     const elTokensTodaySub = document.getElementById("home-tokens-today-sub");
-    if (summaryToday) {
-      const todayTotal = Number(summaryToday.total_tokens || 0);
-      const todayBilled = Number(summaryToday.billed_tokens || 0);
-      tweenValue(elTokensToday, todayTotal, (v) => formatCompactTokens(v));
+    if (billedToday && billedToday.total != null) {
+      const todayBilled = Number(billedToday.total || 0);
+      tweenValue(elTokensToday, todayBilled, (v) => formatCompactTokens(v));
       if (elTokensTodaySub) {
-        elTokensTodaySub.textContent = `${formatCompactTokens(todayBilled)} billed / ${formatCompactTokens(todayTotal)} total`;
+        elTokensTodaySub.textContent = formatSourceBreakdown(billedToday.by_source);
       }
-      setText("dest-chip-insights", `${formatCompactTokens(todayTotal)} tkns`);
+      setText("dest-chip-insights", `${formatCompactTokens(todayBilled)} tkns`);
+    } else if (summaryToday) {
+      const todayBilled = Number(summaryToday.billed_tokens || summaryToday.total_tokens || 0);
+      tweenValue(elTokensToday, todayBilled, (v) => formatCompactTokens(v));
+      if (elTokensTodaySub) {
+        elTokensTodaySub.textContent = `${formatCompactTokens(todayBilled)} billed`;
+      }
+      setText("dest-chip-insights", `${formatCompactTokens(todayBilled)} tkns`);
     } else {
       if (elTokensToday) elTokensToday.textContent = "—";
+      if (elTokensTodaySub) elTokensTodaySub.textContent = "—";
     }
 
-    // 2. All-Time Tokens
+    // 2. All-Time Tokens (billable tokens, all four sources combined)
     const elTokensAlltime = document.getElementById("home-tokens-alltime");
-    if (summaryAlltime) {
-      const allTimeTotal = Number(summaryAlltime.total_tokens || 0);
-      tweenValue(elTokensAlltime, allTimeTotal, (v) => formatAllTimeTokens(v));
+    const elTokensAlltimeSub = document.getElementById("home-tokens-alltime-sub");
+    if (billedAlltime && billedAlltime.total != null) {
+      const allTimeBilled = Number(billedAlltime.total || 0);
+      tweenValue(elTokensAlltime, allTimeBilled, (v) => formatAllTimeTokens(v));
+      if (elTokensAlltimeSub) {
+        elTokensAlltimeSub.textContent = formatSourceBreakdown(billedAlltime.by_source);
+      }
+    } else if (summaryAlltime) {
+      const allTimeBilled = Number(summaryAlltime.billed_tokens || summaryAlltime.total_tokens || 0);
+      tweenValue(elTokensAlltime, allTimeBilled, (v) => formatAllTimeTokens(v));
+      if (elTokensAlltimeSub) {
+        elTokensAlltimeSub.textContent = `${formatCompactTokens(allTimeBilled)} billed`;
+      }
     } else {
       if (elTokensAlltime) elTokensAlltime.textContent = "—";
+      if (elTokensAlltimeSub) elTokensAlltimeSub.textContent = "—";
     }
 
     // 2b. 7D Activity Sparkline (Compute Engine Micro-Visualization)
