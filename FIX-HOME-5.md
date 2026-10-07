@@ -73,3 +73,104 @@ function officeUrl() {
    8903 after), no touching live data, vanilla JS only, git commit in chunks,
    kill your test port, append verification to this file under
    `## C6 verification results`.
+
+## C6 verification results
+
+### 1. Code Diff
+
+```diff
+--- a/web/app.js
++++ b/web/app.js
+@@ -162,12 +162,27 @@
+     },
+   };
+
+-  function getOfficeUrl() {
+-    return `http://${window.location.hostname}:8904/`;
++  function officeUrl(customHost) {
++    const host = customHost || (window._officeHostOverride || window.location.hostname);
++    // Website context (bare domain or any subdomain of it) → website-priority:
++    // the office subdomain. Anchored so unrelated hosts containing the string
++    // (e.g. "notahydrocarbonforge.com") never match.
++    const isWebsite = /(^|\.)hydrocarbonforge\.com$/i.test(host);
++    if (isWebsite) return "https://office.hydrocarbonforge.com/";
++    // Local / LAN: keep working exactly as today. Reuse the page's own protocol
++    // so an https-served LAN page doesn't force an http office (and an http
++    // LAN page behaves identically to before).
++    const proto = (window.location && window.location.protocol) || "http:";
++    const p = proto.endsWith(":") ? proto : `${proto}:`;
++    return `${p}//${host}:8904/`;
++  }
++
++  function getOfficeUrl() {
++    return officeUrl();
+   }
+
+   function launchOffice() {
+-    const url = getOfficeUrl();
++    const url = officeUrl();
+     if (typeof window._officeRedirectInterceptor === "function") {
+       window._officeRedirectInterceptor(url);
+       return;
+@@ -2961,8 +2976,11 @@
+     }
+   }
+
+-  // Expose state for inspection
++  // Expose state and utilities for inspection
+   window.state = state;
++  window.officeUrl = officeUrl;
++  window.getOfficeUrl = officeUrl;
++  window.launchOffice = launchOffice;
+
+   // Self-initialize on DOM load
+   if (document.readyState === "loading") {
+```
+
+### 2. Context URL Resolution Assertions
+
+Verified via automated Headless Chromium CDP suite (`verify_office_redirect.py`) against isolated test server on port 8919:
+
+#### (1) Local / LAN Context
+- Real browser tab loaded at `http://127.0.0.1:8919/`:
+  - `window.location.hostname`: `'127.0.0.1'`
+  - `officeUrl()` resolution: **`http://127.0.0.1:8904/`** [PASS]
+- Simulated LAN custom hosts:
+  - `officeUrl('192.168.1.100')`: **`http://192.168.1.100:8904/`** [PASS]
+  - `officeUrl('forge-box.local')`: **`http://forge-box.local:8904/`** [PASS]
+  - `officeUrl('10.0.0.22')`: **`http://10.0.0.22:8904/`** [PASS]
+
+#### (2) Website Context & Anchored Subdomains
+- Real browser tab loaded at `http://hydrocarbonforge.com:8919/` (via Chromium host-resolver mapping):
+  - `window.location.hostname`: `'hydrocarbonforge.com'`
+  - `officeUrl()` resolution: **`https://office.hydrocarbonforge.com/`** [PASS]
+- Real browser tab loaded at `http://console.hydrocarbonforge.com:8919/`:
+  - `window.location.hostname`: `'console.hydrocarbonforge.com'`
+  - `officeUrl()` resolution: **`https://office.hydrocarbonforge.com/`** [PASS]
+- Subdomains and Case-insensitivity:
+  - `officeUrl('office.hydrocarbonforge.com')`: **`https://office.hydrocarbonforge.com/`** [PASS]
+  - `officeUrl('dev.sub.hydrocarbonforge.com')`: **`https://office.hydrocarbonforge.com/`** [PASS]
+  - `officeUrl('HYDROCARBONFORGE.COM')`: **`https://office.hydrocarbonforge.com/`** [PASS]
+  - `officeUrl('CONSOLE.HYDROCARBONFORGE.COM')`: **`https://office.hydrocarbonforge.com/`** [PASS]
+- Negative Regex Anchoring Tests (must NOT match website regex; fall through to LAN logic):
+  - `officeUrl('notahydrocarbonforge.com')`: **`http://notahydrocarbonforge.com:8904/`** [PASS]
+  - `officeUrl('evil-hydrocarbonforge.com')`: **`http://evil-hydrocarbonforge.com:8904/`** [PASS]
+  - `officeUrl('hydrocarbonforge.com.attacker.com')`: **`http://hydrocarbonforge.com.attacker.com:8904/`** [PASS]
+  - `officeUrl('myhydrocarbonforge.com')`: **`http://myhydrocarbonforge.com:8904/`** [PASS]
+
+### 3. Entry-Point Check (All 5 Entry Points)
+
+Tested using `window._officeRedirectInterceptor` in live browser tabs across both local and website contexts:
+
+| Entry Point | Local Context Target | Website Context Target | Result |
+| :--- | :--- | :--- | :--- |
+| **1. Nav tab (`#nav-office`)** | `http://127.0.0.1:8904/` | `https://office.hydrocarbonforge.com/` | Verified [PASS] |
+| **2. Launchpad tile (`#launch-office` click & Enter)** | `http://127.0.0.1:8904/` | `https://office.hydrocarbonforge.com/` | Verified [PASS] |
+| **3. Treasury card (`#card-jump-office` click & Enter)** | `http://127.0.0.1:8904/` | `https://office.hydrocarbonforge.com/` | Verified [PASS] |
+| **4. Keyboard shortcut (`6`)** | `http://127.0.0.1:8904/` | `https://office.hydrocarbonforge.com/` | Verified [PASS] |
+| **5. Hash route (`#/office` & `#office`)** | `http://127.0.0.1:8904/` | `https://office.hydrocarbonforge.com/` | Verified [PASS] |
+
+- Static audit: exactly **1** occurrence of `:8904` in `web/app.js` (inside `officeUrl()`), and **0** occurrences across all other files in `web/`.
+- UI inspection: `#nav-office` retains title `"Launch Office (external)"`, tab label `"OFFICE"`, and external indicator glyph `↗` (`&nearr;`).
+- Lifecycle: test server on port 8919 and Headless Chromium CDP instances cleanly terminated after test run. Port 8903 remained untouched.
+
