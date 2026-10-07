@@ -162,12 +162,27 @@
     },
   };
 
+  function officeUrl(customHost) {
+    const host = customHost || (window._officeHostOverride || window.location.hostname);
+    // Website context (bare domain or any subdomain of it) → website-priority:
+    // the office subdomain. Anchored so unrelated hosts containing the string
+    // (e.g. "notahydrocarbonforge.com") never match.
+    const isWebsite = /(^|\.)hydrocarbonforge\.com$/i.test(host);
+    if (isWebsite) return "https://office.hydrocarbonforge.com/";
+    // Local / LAN: keep working exactly as today. Reuse the page's own protocol
+    // so an https-served LAN page doesn't force an http office (and an http
+    // LAN page behaves identically to before).
+    const proto = (window.location && window.location.protocol) || "http:";
+    const p = proto.endsWith(":") ? proto : `${proto}:`;
+    return `${p}//${host}:8904/`;
+  }
+
   function getOfficeUrl() {
-    return `http://${window.location.hostname}:8904/`;
+    return officeUrl();
   }
 
   function launchOffice() {
-    const url = getOfficeUrl();
+    const url = officeUrl();
     if (typeof window._officeRedirectInterceptor === "function") {
       window._officeRedirectInterceptor(url);
       return;
@@ -2961,8 +2976,11 @@
     }
   }
 
-  // Expose state for inspection
+  // Expose state and utilities for inspection
   window.state = state;
+  window.officeUrl = officeUrl;
+  window.getOfficeUrl = officeUrl;
+  window.launchOffice = launchOffice;
 
   // Self-initialize on DOM load
   if (document.readyState === "loading") {
