@@ -597,12 +597,18 @@
       function extractBilled(src, doc) {
         if (!doc) return null;
         if (src === "c6") return Number(doc.billed_tokens || 0);
+        const models = Array.isArray(doc.models) ? doc.models : [];
+        if (models.length > 0 && models.some((m) => m && m.billed_tokens != null)) {
+          return models.reduce((acc, m) => acc + Number(m.billed_tokens || 0), 0);
+        }
         const total = doc.total;
         if (total && typeof total === "object") {
           return Number(total.input_tokens || 0) + Number(total.output_tokens || 0);
         }
-        const models = Array.isArray(doc.models) ? doc.models : [];
-        return models.reduce((acc, m) => acc + Number(m.input_tokens || 0) + Number(m.output_tokens || 0), 0);
+        if (models.length > 0) {
+          return models.reduce((acc, m) => acc + Number(m.input_tokens || 0) + Number(m.output_tokens || 0), 0);
+        }
+        return 0;
       }
 
       if (!billedToday) {

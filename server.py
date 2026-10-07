@@ -139,19 +139,27 @@ SCHEME_EXACT_ENDPOINTS = {
 }
 
 
+HOME_TOKENS_REFRESH_INTERVAL = 30.0  # seconds between background refreshes (30-60s)
+HOME_TOKENS_TTL = 60.0               # fresh cache TTL (safety net if refresher delayed)
+HOME_TOKENS_STALE_MAX = 300.0        # serve stale up to 5 minutes on cold/stale hits
+
 _home_tokens_cache = {
     "timestamp": 0.0,
     "data": None,
 }
 _home_tokens_lock = threading.Lock()
+_home_fetch_lock = threading.Lock()
 _home_executor = ThreadPoolExecutor(max_workers=9, thread_name_prefix="home_tokens")
+_home_refresher_thread = None
+_home_refresher_lock = threading.Lock()
+_home_refresh_in_progress = False
 
 
 def _fetch_insights_json(endpoint):
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{INSIGHTS_PORT}{endpoint}")
         req.add_header("User-Agent", "ForgeConsole/1.0")
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode("utf-8"))
     except Exception:
@@ -164,24 +172,19 @@ def _extract_source_billed(src, doc):
         return None
     if src == "c6":
         return doc.get("billed_tokens", 0)
+    models = doc.get("models")
+    if isinstance(models, list) and len(models) > 0 and any("billed_tokens" in m for m in models):
+        return sum(int(m.get("billed_tokens", 0) or 0) for m in models)
     total = doc.get("total")
     if isinstance(total, dict):
         return int(total.get("input_tokens", 0) or 0) + int(total.get("output_tokens", 0) or 0)
-    models = doc.get("models") or []
-    return sum(int(m.get("input_tokens", 0) or 0) + int(m.get("output_tokens", 0) or 0) for m in models)
+    if isinstance(models, list) and len(models) > 0:
+        return sum(int(m.get("input_tokens", 0) or 0) + int(m.get("output_tokens", 0) or 0) for m in models)
+    return 0
 
 
-def get_home_tokens_aggregate():
-    """
-    Fetches token metrics across all 4 harnesses (C6, OpenCode, Claude Code, Antigravity)
-    for today (days=1) and all-time (days=all) plus 7d daily series.
-    Cached for up to 3.0 seconds to keep repeated/parallel requests fast.
-    """
-    now = time.time()
-    with _home_tokens_lock:
-        if _home_tokens_cache["data"] is not None and (now - _home_tokens_cache["timestamp"] < 3.0):
-            return _home_tokens_cache["data"]
-
+def _compute_home_tokens_aggregate():
+    """Fetches and computes token metrics across all 4 harnesses."""
     endpoints = {
         "c6_1d": "/api/summary?days=1",
         "op_1d": "/api/opencode?days=1",
@@ -197,6 +200,10 @@ def get_home_tokens_aggregate():
     keys = list(endpoints.keys())
     futures = _home_executor.map(_fetch_insights_json, [endpoints[k] for k in keys])
     res = dict(zip(keys, futures))
+
+    # Tolerance check: if all endpoints failed (None), avoid overwriting good cache
+    if all(v is None for v in res.values()):
+        return None
 
     today_by_src = {
         "c6": _extract_source_billed("c6", res["c6_1d"]),
@@ -225,8 +232,11 @@ def get_home_tokens_aggregate():
             dt = row.get("date")
             if not dt:
                 continue
-            cw = row.get("cache_write_tokens", 0) if is_c6 else 0
-            b = int(row.get("input_tokens", 0) or 0) + int(row.get("output_tokens", 0) or 0) + int(cw or 0)
+            if "billed_tokens" in row and row.get("billed_tokens") is not None:
+                b = int(row["billed_tokens"] or 0)
+            else:
+                cw = row.get("cache_write_tokens", 0) if is_c6 else 0
+                b = int(row.get("input_tokens", 0) or 0) + int(row.get("output_tokens", 0) or 0) + int(cw or 0)
             daily_billed_map[dt] = daily_billed_map.get(dt, 0) + b
 
     sorted_dates = sorted(daily_billed_map.keys())
@@ -236,7 +246,7 @@ def get_home_tokens_aggregate():
         "total": sum(daily_billed_map.values()),
     }
 
-    data = {
+    return {
         "billed_today_by_source": {
             "total": today_total,
             "by_source": today_by_src,
@@ -250,11 +260,100 @@ def get_home_tokens_aggregate():
         "summary_alltime": res["c6_all"],
     }
 
-    with _home_tokens_lock:
-        _home_tokens_cache["timestamp"] = time.time()
-        _home_tokens_cache["data"] = data
 
-    return data
+def _refresh_home_tokens_cache():
+    """Runs a fan-out aggregation and updates cache if valid data was returned."""
+    with _home_fetch_lock:
+        try:
+            data = _compute_home_tokens_aggregate()
+            if data is not None:
+                with _home_tokens_lock:
+                    _home_tokens_cache["timestamp"] = time.time()
+                    _home_tokens_cache["data"] = data
+                return data
+        except Exception as e:
+            log_collector(f"Home tokens refresh failed: {e}")
+    # If refresh failed or returned None, preserve last good cached data
+    with _home_tokens_lock:
+        return _home_tokens_cache["data"]
+
+
+def _trigger_async_home_tokens_refresh():
+    global _home_refresh_in_progress
+    with _home_tokens_lock:
+        if _home_refresh_in_progress:
+            return
+        _home_refresh_in_progress = True
+
+    def _worker():
+        global _home_refresh_in_progress
+        try:
+            _refresh_home_tokens_cache()
+        finally:
+            with _home_tokens_lock:
+                _home_refresh_in_progress = False
+
+    _home_executor.submit(_worker)
+
+
+def _home_tokens_refresher_loop():
+    """Background daemon thread: keeps home tokens cache warm every ~30s."""
+    log_collector("Home tokens refresher loop started")
+    while True:
+        try:
+            _refresh_home_tokens_cache()
+        except Exception as e:
+            log_collector(f"Home tokens refresher loop error: {e}")
+        time.sleep(HOME_TOKENS_REFRESH_INTERVAL)
+
+
+def _ensure_home_refresher_running():
+    global _home_refresher_thread
+    with _home_refresher_lock:
+        if _home_refresher_thread is None or not _home_refresher_thread.is_alive():
+            _home_refresher_thread = threading.Thread(
+                target=_home_tokens_refresher_loop,
+                daemon=True,
+                name="home_tokens_refresher",
+            )
+            _home_refresher_thread.start()
+
+
+def get_home_tokens_aggregate(force_refresh=False):
+    """
+    Fetches token metrics across all 4 harnesses (C6, OpenCode, Claude Code, Antigravity)
+    for today (days=1) and all-time (days=all) plus 7d daily series.
+    Cached with background refresher and serve-stale semantics so /api/home never blocks.
+    """
+    _ensure_home_refresher_running()
+
+    now = time.time()
+    with _home_tokens_lock:
+        cached_data = _home_tokens_cache["data"]
+        cached_ts = _home_tokens_cache["timestamp"]
+        age = now - cached_ts
+
+        if not force_refresh and cached_data is not None:
+            if age < HOME_TOKENS_TTL:
+                return cached_data
+            if age < HOME_TOKENS_STALE_MAX:
+                # Stale but recent (< 5m): serve immediately, catch up in background
+                _trigger_async_home_tokens_refresh()
+                return cached_data
+
+    # Synchronous path: only on cold boot before any cache exists, or after stale max
+    data = _refresh_home_tokens_cache()
+    if data is not None:
+        return data
+
+    # Defensive fallback if insights engine completely unavailable on cold boot
+    return {
+        "billed_today_by_source": {"total": 0, "by_source": {"c6": 0, "opencode": 0, "claudecode": 0, "antigravity": 0}},
+        "billed_alltime_by_source": {"total": 0, "by_source": {"c6": 0, "opencode": 0, "claudecode": 0, "antigravity": 0}},
+        "activity_7d": {"days": "7", "daily": [], "total": 0},
+        "summary_today": None,
+        "summary_alltime": None,
+    }
 
 
 class ForgeConsoleHandler(BaseHTTPRequestHandler):
@@ -982,6 +1081,9 @@ def main():
     # 4. Collector thread (starts AFTER engine servers are listening)
     collector_thread = threading.Thread(target=collector_loop, daemon=True)
     collector_thread.start()
+
+    # 5. Background home tokens refresher (warm on boot)
+    _ensure_home_refresher_running()
 
     def handle_exit(signum, frame):
         # Raise SystemExit so main thread enters finally block immediately
