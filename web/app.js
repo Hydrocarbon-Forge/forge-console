@@ -500,6 +500,7 @@
       let flowDoc = null;
       let tradingDoc = null;
       let ideasCount = null;
+      let activity7d = null;
 
       // 1. Try consolidated endpoint
       try {
@@ -507,6 +508,7 @@
         if (homeAgg && homeAgg.ok) {
           summaryToday = homeAgg.summary_today;
           summaryAlltime = homeAgg.summary_alltime;
+          activity7d = homeAgg.activity_7d;
           flowDoc = homeAgg.flow;
           tradingDoc = homeAgg.trading;
           ideasCount = homeAgg.ideas_count;
@@ -532,6 +534,13 @@
             .catch(() => {})
         );
       }
+      if (!activity7d) {
+        fetchPromises.push(
+          fetchJson("/api/activity?days=7")
+            .then((d) => { activity7d = d; })
+            .catch(() => {})
+        );
+      }
       if (!flowDoc) {
         fetchPromises.push(
           fetchJson(API.FLOW)
@@ -549,7 +558,12 @@
       if (ideasCount == null) {
         fetchPromises.push(
           fetchJson("/api/stats")
-            .then((d) => { ideasCount = d.total_ideas || d.ideas_count || 0; })
+            .then((d) => {
+              const counts = d && typeof d.counts === "object" ? d.counts : null;
+              ideasCount = (counts && counts.total != null)
+                ? counts.total
+                : (d.total_ideas || d.ideas_count || 0);
+            })
             .catch(() => {})
         );
       }
@@ -570,6 +584,7 @@
         flowDoc,
         tradingDoc,
         ideasCount,
+        activity7d,
       });
 
       const syncStatus = document.getElementById("home-sync-status");
@@ -588,7 +603,63 @@
     }
   }
 
-  function renderHomeMetrics({ summaryToday, summaryAlltime, flowDoc, tradingDoc, ideasCount }) {
+  function renderTokenSparkline(activityDoc) {
+    const svg = document.getElementById("home-compute-sparkline");
+    const valEl = document.getElementById("home-compute-sparkline-val");
+    if (!svg) return;
+
+    let points = [];
+    if (activityDoc && Array.isArray(activityDoc.daily) && activityDoc.daily.length > 0) {
+      points = activityDoc.daily.map((d) => Number(d.total_tokens || 0));
+    } else if (activityDoc && Array.isArray(activityDoc.by_day) && activityDoc.by_day.length > 0) {
+      points = activityDoc.by_day.map((v) => Number(v || 0));
+    }
+
+    if (points.length < 2) {
+      svg.innerHTML = "";
+      if (valEl) valEl.textContent = "—";
+      return;
+    }
+
+    const total7d = points.reduce((acc, v) => acc + v, 0);
+    if (valEl) {
+      valEl.textContent = `${formatCompactTokens(total7d)} 7d`;
+    }
+
+    const w = 200;
+    const h = 36;
+    const padTop = 4;
+    const padBottom = 4;
+    const padX = 4;
+
+    const maxVal = Math.max(...points, 1);
+    const minVal = Math.min(...points, 0);
+    const range = (maxVal - minVal) || 1;
+
+    const coords = points.map((val, idx) => {
+      const x = padX + (idx / (points.length - 1)) * (w - 2 * padX);
+      const y = (h - padBottom) - ((val - minVal) / range) * (h - padTop - padBottom);
+      return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)), val };
+    });
+
+    const pathD = coords.reduce((acc, pt, i) => `${acc} ${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`, "");
+    const areaD = `${pathD} L ${coords[coords.length - 1].x} ${h} L ${coords[0].x} ${h} Z`;
+    const lastPt = coords[coords.length - 1];
+
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="hf-spark-grad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#FF8C42" stop-opacity="0.25" />
+          <stop offset="100%" stop-color="#FF8C42" stop-opacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d="${areaD}" fill="url(#hf-spark-grad)" />
+      <path d="${pathD}" fill="none" stroke="#FF8C42" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="${lastPt.x}" cy="${lastPt.y}" r="2.5" fill="#FF8C42" />
+    `;
+  }
+
+  function renderHomeMetrics({ summaryToday, summaryAlltime, flowDoc, tradingDoc, ideasCount, activity7d }) {
     // 1. Tokens Today (total_tokens & billed_tokens)
     const elTokensToday = document.getElementById("home-tokens-today");
     const elTokensTodaySub = document.getElementById("home-tokens-today-sub");
@@ -613,6 +684,9 @@
       if (elTokensAlltime) elTokensAlltime.textContent = "—";
     }
 
+    // 2b. 7D Activity Sparkline (Compute Engine Micro-Visualization)
+    renderTokenSparkline(activity7d);
+
     // 3. Trading Stats
     if (tradingDoc && !tradingDoc.error) {
       const stock = tradingDoc.stock || {};
@@ -634,49 +708,60 @@
       const totalHoldings = stockHoldings + cryptoHoldings;
 
       const elTradingEquity = document.getElementById("home-trading-equity");
-      tweenValue(elTradingEquity, totalEq, (v) => `$${v.toFixed(2)}`);
+      tweenValue(elTradingEquity, totalEq, (v) => formatMoney(v));
 
       const elDayPnl = document.getElementById("home-trading-day-pnl");
       if (elDayPnl) {
-        elDayPnl.textContent = `DAY: ${totalDayPnl >= 0 ? "+" : ""}$${totalDayPnl.toFixed(2)}`;
+        elDayPnl.textContent = `DAY: ${formatSignedMoney(totalDayPnl)}`;
         elDayPnl.className = `pnl-pill ${totalDayPnl >= 0 ? "pos" : "neg"}`;
       }
 
       const elTotPnl = document.getElementById("home-trading-total-pnl");
       if (elTotPnl) {
-        elTotPnl.textContent = `TOT: ${totalTotPnl >= 0 ? "+" : ""}$${totalTotPnl.toFixed(2)}`;
+        elTotPnl.textContent = `TOT: ${formatSignedMoney(totalTotPnl)}`;
         elTotPnl.className = `pnl-pill ${totalTotPnl >= 0 ? "pos" : "neg"}`;
       }
 
-      setText("home-stock-equity", `$${stockEq.toFixed(2)}`);
+      setText("home-stock-equity", formatMoney(stockEq));
       const elStockPnl = document.getElementById("home-stock-pnl");
       if (elStockPnl) {
-        elStockPnl.textContent = `${stockDayPnl >= 0 ? "+" : ""}$${stockDayPnl.toFixed(2)} (${Number(stock.day_pct || 0).toFixed(1)}%)`;
+        const pct = Number(stock.day_pct || 0);
+        const pctStr = pct > 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+        elStockPnl.textContent = `${formatSignedMoney(stockDayPnl)} (${pctStr})`;
         elStockPnl.className = `book-sub ${stockDayPnl >= 0 ? "pos" : "neg"}`;
       }
 
-      setText("home-crypto-equity", `$${cryptoEq.toFixed(2)}`);
+      setText("home-crypto-equity", formatMoney(cryptoEq));
       const elCryptoPnl = document.getElementById("home-crypto-pnl");
       if (elCryptoPnl) {
-        elCryptoPnl.textContent = `${cryptoDayPnl >= 0 ? "+" : ""}$${cryptoDayPnl.toFixed(2)} (${Number(crypto.day_pct || 0).toFixed(1)}%)`;
+        const pct = Number(crypto.day_pct || 0);
+        const pctStr = pct > 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`;
+        elCryptoPnl.textContent = `${formatSignedMoney(cryptoDayPnl)} (${pctStr})`;
         elCryptoPnl.className = `book-sub ${cryptoDayPnl >= 0 ? "pos" : "neg"}`;
       }
 
       setText("home-holdings-count", `${totalHoldings} total`);
-      setText("dest-chip-office", `$${totalEq.toFixed(2)} eq`);
+      setText("dest-chip-office", `${formatMoney(totalEq)} eq`);
     } else {
       setText("home-trading-equity", "$—");
       setText("dest-chip-office", "Desk standby");
     }
 
-    // 4. Running Harnesses
+    // 4. Harness Fleet (All harnesses: running on top, idle below, with relative usage bar)
     const harnesses = (flowDoc && flowDoc.harnesses) || [];
-    const runningHarnesses = harnesses.filter((h) => {
+    const isRunningHarness = (h) => {
       const isC6 = h.id === "harness-c6" || h.name === "c6";
       return isC6
         ? Boolean(h.running && (h.active_sessions > 0 || (h.last_active_s != null && h.last_active_s < 300)))
-        : (h.active_sessions > 0 || h.running);
-    });
+        : Boolean(h.active_sessions > 0 || h.running);
+    };
+
+    const runningHarnesses = harnesses.filter(isRunningHarness);
+    const idleHarnesses = harnesses.filter((h) => !isRunningHarness(h));
+
+    runningHarnesses.sort((a, b) => Number(b.tokens_today || 0) - Number(a.tokens_today || 0));
+    idleHarnesses.sort((a, b) => Number(b.tokens_today || 0) - Number(a.tokens_today || 0));
+    const sortedHarnesses = [...runningHarnesses, ...idleHarnesses];
 
     const elHarnessBadge = document.getElementById("home-harness-badge");
     if (elHarnessBadge) {
@@ -684,23 +769,37 @@
       elHarnessBadge.className = `badge-count ${runningHarnesses.length > 0 ? "live" : ""}`;
     }
 
+    const maxHarnessTokens = Math.max(...sortedHarnesses.map((h) => Number(h.tokens_today || 0)), 1);
+
     const elHarnessList = document.getElementById("home-harness-list");
     if (elHarnessList) {
-      if (runningHarnesses.length === 0) {
-        elHarnessList.innerHTML = `<div class="harness-empty">No active harnesses</div>`;
+      if (sortedHarnesses.length === 0) {
+        elHarnessList.innerHTML = `<div class="harness-empty">No harnesses configured</div>`;
       } else {
-        elHarnessList.innerHTML = runningHarnesses.map((h) => `
-          <div class="harness-item running">
-            <div class="harness-left">
-              <span class="harness-pip live"></span>
-              <span class="harness-name">${escapeHtml(h.label || h.name)}</span>
+        elHarnessList.innerHTML = sortedHarnesses.map((h) => {
+          const isRunning = isRunningHarness(h);
+          const tokens = Number(h.tokens_today || 0);
+          const pct = maxHarnessTokens > 0 ? Math.min(100, Math.round((tokens / maxHarnessTokens) * 100)) : 0;
+          return `
+            <div class="harness-item ${isRunning ? "running" : "idle"}">
+              <div class="harness-main">
+                <div class="harness-left">
+                  <span class="harness-pip ${isRunning ? "live" : ""}"></span>
+                  <span class="harness-name">${escapeHtml(h.label || h.name)}</span>
+                </div>
+                <div class="harness-right">
+                  ${isRunning
+                    ? `<span class="harness-sessions">${h.active_sessions || 1} active</span>${h.pids && h.pids.length ? `<span class="harness-pids">PID ${h.pids[0]}</span>` : ""}`
+                    : `<span class="harness-idle-tag">IDLE</span>`
+                  }
+                </div>
+              </div>
+              <div class="harness-bar-track" title="${formatCompactTokens(tokens)} tokens today">
+                <div class="harness-bar-fill" style="width: ${pct}%;"></div>
+              </div>
             </div>
-            <div class="harness-right">
-              <span class="harness-sessions">${h.active_sessions || 1} active</span>
-              ${h.pids && h.pids.length ? `<span class="harness-pids">PID ${h.pids[0]}</span>` : ""}
-            </div>
-          </div>
-        `).join("");
+          `;
+        }).join("");
       }
     }
 
@@ -2276,8 +2375,16 @@
     return String(Math.round(n));
   }
 
+  function formatSignedMoney(amount) {
+    const num = Number(amount || 0);
+    if (num < 0) return `-$${Math.abs(num).toFixed(2)}`;
+    if (num > 0) return `+$${num.toFixed(2)}`;
+    return `$0.00`;
+  }
+
   function formatMoney(amount) {
-    return "$" + Number(amount || 0).toFixed(2);
+    const num = Number(amount || 0);
+    return num < 0 ? `-$${Math.abs(num).toFixed(2)}` : `$${num.toFixed(2)}`;
   }
 
   function formatByteSize(bytes) {

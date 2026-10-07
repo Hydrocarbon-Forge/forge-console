@@ -418,7 +418,18 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=1.5) as resp:
                 if resp.status == 200:
                     stats_doc = json.loads(resp.read().decode("utf-8"))
-                    ideas_count = stats_doc.get("total_ideas", stats_doc.get("ideas_count", 0))
+                    counts = stats_doc.get("counts") if isinstance(stats_doc.get("counts"), dict) else {}
+                    ideas_count = counts.get("total", stats_doc.get("total_ideas", stats_doc.get("ideas_count", 0)))
+        except Exception:
+            pass
+
+        # 7-day token activity (for compute engine sparkline)
+        activity_7d = None
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8901/api/activity?days=7")
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    activity_7d = json.loads(resp.read().decode("utf-8"))
         except Exception:
             pass
 
@@ -426,6 +437,7 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
             "ok": True,
             "summary_today": summary_1d,
             "summary_alltime": summary_alltime,
+            "activity_7d": activity_7d,
             "flow": {
                 "harnesses": cached_flow.get("harnesses", []),
                 "projects": cached_flow.get("projects", []),
