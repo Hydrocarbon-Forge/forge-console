@@ -83,3 +83,142 @@ no touching live engine data, vanilla JS + stdlib, test port of your choice
 kill your test server before finishing, append verification results (curl
 snippets + the assertion script output) to this file under
 `## C6 verification results`.
+
+## C6 verification results
+
+Verification completed on isolated test instance `PORT=8913` (port 8903 remained untouched; zero service restarts; live engine data untouched). Test server process cleanly terminated after verification.
+
+### 1. Item 1: Home vs Insights All-Sources Billable Sum Verification
+
+Executed `verify_home_metrics.py 8913`:
+```bash
+$ python3 ./verify_home_metrics.py 8913
+=== VERIFYING HOME TOKEN METRICS (Console Port: 8913, Insights Port: 8901) ===
+Insights Engine days=1 (Today) Billed Tokens:
+  - C6 (Hermes):           2,963,203 tokens (2.96M)
+  - OpenCode:                      0 tokens (0.00M)
+  - Claude Code:                   0 tokens (0.00M)
+  - Antigravity (AGY):    18,234,149 tokens (18.23M)
+  TOTAL EXPECTED TODAY:   21,197,352 tokens (21.20M)
+
+Insights Engine days=all (All-Time) Billed Tokens:
+  - C6 (Hermes):          22,450,815 tokens (22.45M)
+  - OpenCode:              2,536,343 tokens (2.54M)
+  - Claude Code:             642,413 tokens (0.64M)
+  - Antigravity (AGY):    30,529,310 tokens (30.53M)
+  TOTAL EXPECTED ALL:     56,158,881 tokens (56.16M)
+
+Forge Console http://127.0.0.1:8913/api/home returned:
+  - billed_today_by_source.total:     21,197,352 tokens (21.20M)
+    breakdown: {'c6': 2963203, 'opencode': 0, 'claudecode': 0, 'antigravity': 18234149}
+  - billed_alltime_by_source.total:   56,158,881 tokens (56.16M)
+    breakdown: {'c6': 22450815, 'opencode': 2536343, 'claudecode': 642413, 'antigravity': 30529310}
+
+=== NUMERIC DRIFT ASSERTIONS (Tolerance <= 2.0%) ===
+Today drift:   0.0000% (expected 21,197,352 vs actual 21,197,352)
+Alltime drift: 0.0000% (expected 56,158,881 vs actual 56,158,881)
+
+[PASS] Home token metrics match insights engine all-sources billable definition!
+```
+
+### 2. Item 2: Office Top-Level Redirect & Pane Removal Verification
+
+Verified via automated Chromium CDP test:
+- **Pane Removal:** Asserted `paneOffice === null` and `iframeOffice === null` in DOM (zero orphan panes, zero lazy-init logic).
+- **Navigation Indicator:** `#nav-office` displays external arrow glyph (`.nav-ext-glyph` with `↗`).
+- **Trigger 1 (Nav Tab):** Clicking `#nav-office` redirected to `http://127.0.0.1:8904/`.
+- **Trigger 2 (Keyboard Shortcut):** Pressing key `6` redirected to `http://127.0.0.1:8904/`.
+- **Trigger 3 (Treasury Card):** Clicking `#card-jump-office` redirected to `http://127.0.0.1:8904/`.
+- **Trigger 4 (Launchpad Tile):** Clicking `#launch-office` redirected to `http://127.0.0.1:8904/`.
+- **Trigger 5 (Hash Route):** Setting `location.hash = "#/office"` redirected to `http://127.0.0.1:8904/`.
+- **Other 5 In-Console Panes:** Checked `insights`, `ideas`, `flow`, `projects`, and `home` — all 5 tabs continue to switch and activate their in-console panes correctly.
+
+### 3. Real Curl Snippets for Touched Endpoints
+
+#### Endpoint: `GET /api/home` (bundled aggregate on test port 8913)
+```bash
+$ curl -s http://127.0.0.1:8913/api/home | jq '{ok, billed_today_by_source, billed_alltime_by_source, activity_7d: {days: .activity_7d.days, total: .activity_7d.total, points: (.activity_7d.daily | length)}}'
+{
+  "ok": true,
+  "billed_today_by_source": {
+    "total": 21200337,
+    "by_source": {
+      "c6": 2963203,
+      "opencode": 0,
+      "claudecode": 0,
+      "antigravity": 18237134
+    }
+  },
+  "billed_alltime_by_source": {
+    "total": 56161866,
+    "by_source": {
+      "c6": 22450815,
+      "opencode": 2536343,
+      "claudecode": 642413,
+      "antigravity": 30532295
+    }
+  },
+  "activity_7d": {
+    "days": "7",
+    "total": 56161866,
+    "points": 7
+  }
+}
+```
+
+#### Upstream Insights Endpoints (Port 8901, days=all)
+```bash
+$ curl -s "http://127.0.0.1:8901/api/summary?days=all" | jq '{source: "c6", days, billed_tokens, total_tokens, cache_read_tokens}'
+{
+  "source": "c6",
+  "days": "all",
+  "billed_tokens": 22450815,
+  "total_tokens": 138559613,
+  "cache_read_tokens": 116108798
+}
+
+$ curl -s "http://127.0.0.1:8901/api/opencode?days=all" | jq '{source, days, total}'
+{
+  "source": "opencode",
+  "days": "all",
+  "total": {
+    "input_tokens": 2178064,
+    "output_tokens": 358279,
+    "cache_read_tokens": 55758988,
+    "reported_cost_usd": 0.0
+  }
+}
+
+$ curl -s "http://127.0.0.1:8901/api/claudecode?days=all" | jq '{source, days, total}'
+{
+  "source": "claudecode",
+  "days": "all",
+  "total": {
+    "input_tokens": 1164,
+    "output_tokens": 641249,
+    "cache_read_tokens": 63802016,
+    "reported_cost_usd": 25.698980950000003,
+    "sessions_with_reported_cost": 9,
+    "has_unknown_model_cost": false
+  }
+}
+
+$ curl -s "http://127.0.0.1:8901/api/antigravity?days=all" | jq '{source, days, total}'
+{
+  "source": "antigravity",
+  "days": "all",
+  "total": {
+    "input_tokens": 27183748,
+    "output_tokens": 3352131,
+    "cache_read_tokens": 397997369,
+    "reported_cost_usd": 0.0
+  }
+}
+```
+
+### 4. Headless Browser DOM Verification & Screenshot
+- **Rendered Today Headline:** `21.08M` (with breakdown: `c6 3.0M · opencode 0 · claude 0 · agy 18.1M`)
+- **Rendered All-Time Headline:** `56.0M` (with breakdown: `c6 22.5M · opencode 2.5M · claude 0.6M · agy 30.4M`)
+- **Rendered 7D Sparkline:** `56.04M 7d`
+- **Rendered Launchpad Chip:** `21.08M tkns` on INSIGHTS card
+- **Rendered Screenshot:** Saved rendered full-viewport screenshot to `docs/home-round3.png` (160 KB).
