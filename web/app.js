@@ -472,8 +472,13 @@
       el.textContent = formatFn(targetVal);
       return;
     }
+    el.textContent = formatFn(startVal); // continuity baseline (no flicker)
     const startTime = performance.now();
+    let started = false;
+    let done = false;
     function step(now) {
+      if (done) return;
+      started = true; // first frame fired -> rAF is alive
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / durationMs, 1.0);
       const ease = 1 - (1 - progress) * (1 - progress);
@@ -482,10 +487,19 @@
       if (progress < 1.0) {
         requestAnimationFrame(step);
       } else {
+        done = true;
         el.textContent = formatFn(targetVal);
       }
     }
     requestAnimationFrame(step);
+    // Fallback: if rAF never fires (hidden/throttled tab), write the final
+    // value so the headline doesn't stay at its `--` placeholder.
+    setTimeout(() => {
+      if (!started && !done) {
+        done = true;
+        el.textContent = formatFn(targetVal);
+      }
+    }, 200);
   }
 
   function formatCompactTokens(num) {
