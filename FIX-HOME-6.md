@@ -94,3 +94,80 @@ instead of 0.6M — that is the board-consistent number, keep the same format.
   service after), no engine changes, no live-data writes, vanilla + stdlib,
   git commit in chunks, kill test ports, append verification to this file
   under `## C6 verification results`.
+
+## C6 verification results
+
+Verification performed on test port 8920 on 2026-10-07 without binding port 8903, modifying engines, or restarting live services. Test port 8920 was cleanly terminated after test completion.
+
+### 1. 10 Timed `/api/home` Curls Across TTL Boundaries (>60s Span)
+
+Test: Spanned 72.1 seconds covering both the 30s background refresher interval and the 60s TTL boundary.
+
+```
+Starting 10 timed calls to http://127.0.0.1:8920/api/home spanning >60s...
+Call  1 | T+  0.0s | Latency:   4.53 ms | Status: 200 | Bytes: 13652
+Call  2 | T+  5.0s | Latency:   2.78 ms | Status: 200 | Bytes: 13652
+Call  3 | T+ 10.0s | Latency:   7.17 ms | Status: 200 | Bytes: 13652
+Call  4 | T+ 20.0s | Latency:   2.66 ms | Status: 200 | Bytes: 13652
+Call  5 | T+ 32.0s | Latency:   2.62 ms | Status: 200 | Bytes: 13651 (post-30s background refresh)
+Call  6 | T+ 40.0s | Latency:   3.01 ms | Status: 200 | Bytes: 13653
+Call  7 | T+ 50.0s | Latency:   5.13 ms | Status: 200 | Bytes: 13652
+Call  8 | T+ 62.0s | Latency:  22.93 ms | Status: 200 | Bytes: 13653 (post-60s TTL boundary)
+Call  9 | T+ 67.1s | Latency:  18.09 ms | Status: 200 | Bytes: 13653
+Call 10 | T+ 72.1s | Latency:  11.76 ms | Status: 200 | Bytes: 13645
+
+Finished 10 calls in 72.1s.
+Max latency: 22.93 ms (all < 200 ms: True)
+```
+
+Result: Cache is permanently warm. No request ever blocked on the cold antigravity scan (~2.4s).
+
+### 2. Metric Drift and Board Definition Alignment (`verify_home_metrics.py 8920`)
+
+Ran `python3 verify_home_metrics.py 8920` with updated board definition (`sum(models[].billed_tokens)`):
+
+```
+=== VERIFYING HOME TOKEN METRICS (Console Port: 8920, Insights Port: 8901) ===
+Insights Engine days=1 (Today) Billed Tokens:
+  - C6 (Hermes):           2,114,864 tokens (2.11M)
+  - OpenCode:                      0 tokens (0.00M)
+  - Claude Code:                   0 tokens (0.00M)
+  - Antigravity (AGY):    15,865,599 tokens (15.87M)
+  TOTAL EXPECTED TODAY:   17,980,463 tokens (17.98M)
+
+Insights Engine days=all (All-Time) Billed Tokens:
+  - C6 (Hermes):          25,961,956 tokens (25.96M)
+  - OpenCode:              2,536,343 tokens (2.54M)
+  - Claude Code:           3,561,787 tokens (3.56M)
+  - Antigravity (AGY):    39,047,859 tokens (39.05M)
+  TOTAL EXPECTED ALL:     71,107,945 tokens (71.11M)
+
+Forge Console http://127.0.0.1:8920/api/home returned:
+  - billed_today_by_source.total:     17,966,347 tokens (17.97M)
+    breakdown: {'c6': 2114864, 'opencode': 0, 'claudecode': 0, 'antigravity': 15851483}
+  - billed_alltime_by_source.total:   71,093,829 tokens (71.09M)
+    breakdown: {'c6': 25961956, 'opencode': 2536343, 'claudecode': 3561787, 'antigravity': 39033743}
+
+=== NUMERIC DRIFT ASSERTIONS (Tolerance <= 2.0%) ===
+Today drift:   0.0785% (expected 17,980,463 vs actual 17,966,347)
+Alltime drift: 0.0199% (expected 71,107,945 vs actual 71,093,829)
+
+[PASS] Home token metrics match insights engine all-sources billable definition!
+```
+
+Key points:
+- Claude Code all-time billed tokens: 3,561,787 tokens (~3.56M) in both expected and home payload.
+- All-time drift: 0.0199% (well within 2.0% live drift threshold).
+- Today drift: 0.0785% (well within 2.0% live drift threshold).
+
+### 3. Browser Unrendered Tab Verification (CDP Headless Chromium)
+
+Test: Tab 1 loaded `http://127.0.0.1:8920/#pane-home`, deactivated and forced into background by activating Tab 2.
+- CDP confirmed `document.hidden === true` and `visibilityState === 'hidden'`.
+- Scheduler check confirmed `requestAnimationFrame` was frozen (`rafFired: False`) and fallback timer fired (`timerFired: True`).
+- Headline values and per-source breakdown settled on real values:
+  - `home-tokens-today`: `17.98M` (breakdown: `c6 2.1M · opencode 0 · claude 0 · agy 15.9M`)
+  - `home-tokens-alltime`: `71.1M` (breakdown: `c6 26.0M · opencode 2.5M · claude 3.6M · agy 39.1M`)
+  - `home-trading-equity`: `$196.01`
+- None remained stuck at `--` or `—`.
+- Claude breakdown shows `claude 3.6M` consistent with the insights board.
