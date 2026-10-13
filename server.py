@@ -17,6 +17,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
+from bounded_server import BoundedThreadingServer, BoundedThreadPoolMixIn, DaemonThreadPoolExecutor
 
 import collector
 
@@ -152,7 +153,7 @@ _home_tokens_cache = {
 }
 _home_tokens_lock = threading.Lock()
 _home_fetch_lock = threading.Lock()
-_home_executor = ThreadPoolExecutor(max_workers=9, thread_name_prefix="home_tokens")
+_home_executor = DaemonThreadPoolExecutor(max_workers=9, thread_name_prefix="home_tokens")
 _home_refresher_thread = None
 _home_refresher_lock = threading.Lock()
 _home_refresh_in_progress = False
@@ -162,6 +163,7 @@ def _fetch_insights_json(endpoint):
     try:
         req = urllib.request.Request(f"http://127.0.0.1:{INSIGHTS_PORT}{endpoint}")
         req.add_header("User-Agent", "ForgeConsole/1.0")
+        req.add_header("Connection", "close")
         with urllib.request.urlopen(req, timeout=5.0) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode("utf-8"))
@@ -326,25 +328,17 @@ def get_home_tokens_aggregate(force_refresh=False):
     """
     Fetches token metrics across all 4 harnesses (C6, OpenCode, Claude Code, Antigravity)
     for today (days=1) and all-time (days=all) plus 7d daily series.
-    Cached with background refresher and serve-stale semantics so /api/home never blocks.
+    Cached with background refresher and serve-stale semantics so /api/home never blocks
+    or fans out on poll.
     """
     _ensure_home_refresher_running()
 
-    now = time.time()
     with _home_tokens_lock:
         cached_data = _home_tokens_cache["data"]
-        cached_ts = _home_tokens_cache["timestamp"]
-        age = now - cached_ts
-
         if not force_refresh and cached_data is not None:
-            if age < HOME_TOKENS_TTL:
-                return cached_data
-            if age < HOME_TOKENS_STALE_MAX:
-                # Stale but recent (< 5m): serve immediately, catch up in background
-                _trigger_async_home_tokens_refresh()
-                return cached_data
+            return cached_data
 
-    # Synchronous path: only on cold boot before any cache exists, or after stale max
+    # Synchronous path: only on cold boot before any cache exists, or if force_refresh=True
     data = _refresh_home_tokens_cache()
     if data is not None:
         return data
@@ -361,7 +355,7 @@ def get_home_tokens_aggregate(force_refresh=False):
 
 class ForgeConsoleHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    timeout = 60
+    timeout = 30
 
     def log_message(self, format, *args):
         # Suppress routine logging to keep console clean, or log to debug
@@ -619,6 +613,7 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
         ideas_count = 0
         try:
             req = urllib.request.Request(f"http://127.0.0.1:{IDEAS_PORT}/api/stats")
+            req.add_header("Connection", "close")
             with urllib.request.urlopen(req, timeout=1.5) as resp:
                 if resp.status == 200:
                     stats_doc = json.loads(resp.read().decode("utf-8"))
@@ -862,6 +857,7 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
 
         req = urllib.request.Request(upstream_url, data=body_data, method=method)
         req.add_header("User-Agent", "ForgeConsoleProxy/1.0")
+        req.add_header("Connection", "close")
         if self.headers.get("Content-Type"):
             req.add_header("Content-Type", self.headers.get("Content-Type"))
 
@@ -1019,9 +1015,8 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
             self.send_error_json(500, f"Error reading file: {e}")
 
 
-class ReusableThreadingServer(ThreadingHTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+class ReusableThreadingServer(BoundedThreadingServer):
+    pass
 
 
 def main():
@@ -1030,7 +1025,12 @@ def main():
 
     # 1. Main console server on 8903
     try:
-        server = ReusableThreadingServer(("0.0.0.0", PORT), ForgeConsoleHandler)
+        server = ReusableThreadingServer(
+            ("0.0.0.0", PORT),
+            ForgeConsoleHandler,
+            max_workers=128,
+            thread_name_prefix="console_8903",
+        )
     except OSError as e:
         msg = f"ERROR: Port {PORT} already in use (failed to bind forge-console server): {e}"
         print(msg, file=sys.stderr)
@@ -1047,9 +1047,14 @@ def main():
         sys.modules["insights_engine"] = insights_engine
         spec_insights.loader.exec_module(insights_engine)
         insights_handler = insights_engine.Handler
-        insights_handler.timeout = 60
+        insights_handler.timeout = 30
 
-        insights_server = ReusableThreadingServer(("0.0.0.0", INSIGHTS_PORT), insights_handler)
+        insights_server = ReusableThreadingServer(
+            ("0.0.0.0", INSIGHTS_PORT),
+            insights_handler,
+            max_workers=64,
+            thread_name_prefix="insights_8901",
+        )
         insights_thread = threading.Thread(target=insights_server.serve_forever, daemon=True)
         insights_thread.start()
     except OSError as e:
@@ -1070,9 +1075,14 @@ def main():
         sys.modules["ideas_engine"] = ideas_engine
         spec_ideas.loader.exec_module(ideas_engine)
         ideas_handler = ideas_engine.SchemeBoardHandler
-        ideas_handler.timeout = 60
+        ideas_handler.timeout = 30
 
-        ideas_server = ReusableThreadingServer(("0.0.0.0", IDEAS_PORT), ideas_handler)
+        ideas_server = ReusableThreadingServer(
+            ("0.0.0.0", IDEAS_PORT),
+            ideas_handler,
+            max_workers=64,
+            thread_name_prefix="ideas_8902",
+        )
         ideas_thread = threading.Thread(target=ideas_server.serve_forever, daemon=True)
         ideas_thread.start()
     except OSError as e:
@@ -1097,9 +1107,9 @@ def main():
     console_to = getattr(ForgeConsoleHandler, "timeout", None)
     insights_to = getattr(insights_handler, "timeout", None) if "insights_handler" in locals() else None
     ideas_to = getattr(ideas_handler, "timeout", None) if "ideas_handler" in locals() else None
-    print(f"Forge Console server running at http://0.0.0.0:{PORT} (timeout={console_to}s)")
-    print(f"Insights engine running at http://0.0.0.0:{INSIGHTS_PORT} (timeout={insights_to}s)")
-    print(f"Ideas engine running at http://0.0.0.0:{IDEAS_PORT} (timeout={ideas_to}s)")
+    print(f"Forge Console server running at http://0.0.0.0:{PORT} (timeout={console_to}s, max_workers={server.max_workers})")
+    print(f"Insights engine running at http://0.0.0.0:{INSIGHTS_PORT} (timeout={insights_to}s, max_workers={getattr(insights_server, 'max_workers', 'N/A')})")
+    print(f"Ideas engine running at http://0.0.0.0:{IDEAS_PORT} (timeout={ideas_to}s, max_workers={getattr(ideas_server, 'max_workers', 'N/A')})")
     try:
         server.serve_forever()
     except (KeyboardInterrupt, SystemExit):

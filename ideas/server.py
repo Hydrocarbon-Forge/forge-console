@@ -13,9 +13,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import db
-
 BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.append(str(BASE_DIR.parent))
+
+import db
+from bounded_server import BoundedThreadingServer
+
 SITE_DIR = BASE_DIR / "site"
 HOST = "0.0.0.0"
 PORT = 8902
@@ -23,7 +29,7 @@ PORT = 8902
 
 class SchemeBoardHandler(BaseHTTPRequestHandler):
     server_version = "SchemeBoard/1.0"
-    timeout = 60
+    timeout = 30
 
     def _send_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -319,10 +325,13 @@ class SchemeBoardHandler(BaseHTTPRequestHandler):
 def run_server(host: str = HOST, port: int = PORT) -> None:
     db.init_db()
     server_address = (host, port)
-    ThreadingHTTPServer.allow_reuse_address = True
-    httpd = ThreadingHTTPServer(server_address, SchemeBoardHandler)
-    httpd.daemon_threads = True
-    print(f"Scheme Board server running at http://{host}:{port}/ (timeout={SchemeBoardHandler.timeout}s)")
+    httpd = BoundedThreadingServer(
+        server_address,
+        SchemeBoardHandler,
+        max_workers=64,
+        thread_name_prefix="ideas_8902",
+    )
+    print(f"Scheme Board server running at http://{host}:{port}/ (timeout={SchemeBoardHandler.timeout}s, max_workers={httpd.max_workers})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

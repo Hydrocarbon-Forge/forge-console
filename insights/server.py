@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import time
 import threading
 from collections import Counter, defaultdict
@@ -16,6 +17,10 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR.parent) not in sys.path:
+    sys.path.append(str(BASE_DIR.parent))
+from bounded_server import BoundedThreadingServer
+
 PRICING_PATH = BASE_DIR / "pricing.json"
 WEB_DIR = BASE_DIR / "web"
 
@@ -1818,7 +1823,7 @@ def invalidate_all():
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "InsightsBoard/1.0"
-    timeout = 60
+    timeout = 30
 
     def log_message(self, fmt, *args):
         pass
@@ -2057,13 +2062,19 @@ def main():
     args = ap.parse_args()
     DB_PATH = args.db
     OPENCODE_DB_PATH = args.opencode_db
-    srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    srv.daemon_threads = True
-    print(f"insights-board serving {WEB_DIR} + API on http://{args.host}:{args.port}/ (timeout={Handler.timeout}s) db={DB_PATH} opencode_db={OPENCODE_DB_PATH}")
+    srv = BoundedThreadingServer(
+        (args.host, args.port),
+        Handler,
+        max_workers=64,
+        thread_name_prefix="insights_8901",
+    )
+    print(f"insights-board serving {WEB_DIR} + API on http://{args.host}:{args.port}/ (timeout={Handler.timeout}s, max_workers={srv.max_workers}) db={DB_PATH} opencode_db={OPENCODE_DB_PATH}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        srv.server_close()
 
 
 if __name__ == "__main__":
