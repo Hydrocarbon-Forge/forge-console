@@ -87,6 +87,51 @@ def scan_processes_by_name():
     return found
 
 
+def _get_server_token_metric(source):
+    """
+    Reads today's token count for `source` directly from server._home_tokens_cache
+    without loopback HTTP pings.
+    """
+    for mod_name in ("server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod and hasattr(mod, "_home_tokens_cache"):
+            try:
+                fn = getattr(mod, "get_cached_today_tokens", None)
+                if callable(fn):
+                    return fn(source)
+                cache = getattr(mod, "_home_tokens_cache", None)
+                if isinstance(cache, dict) and cache.get("data"):
+                    by_src = cache["data"].get("billed_today_by_source", {}).get("by_source", {})
+                    val = by_src.get(source)
+                    if val is not None:
+                        return int(val)
+            except Exception:
+                pass
+    return 0
+
+
+def _get_server_session_metric(source):
+    """
+    Reads session count for `source` directly from server._home_tokens_cache.
+    """
+    for mod_name in ("server", "__main__"):
+        mod = sys.modules.get(mod_name)
+        if mod and hasattr(mod, "_home_tokens_cache"):
+            try:
+                fn = getattr(mod, "get_cached_sessions", None)
+                if callable(fn):
+                    return fn(source)
+                cache = getattr(mod, "_home_tokens_cache", None)
+                if isinstance(cache, dict) and cache.get("data"):
+                    sessions = cache["data"].get("sessions_today", {})
+                    val = sessions.get(source)
+                    if val is not None:
+                        return int(val)
+            except Exception:
+                pass
+    return 0
+
+
 def get_harnesses(procs):
     """
     Returns the four agent harness nodes: opencode, claude code, antigravity, C6 (Hermes).
@@ -170,15 +215,7 @@ def get_harnesses(procs):
         except Exception:
             pass
 
-    cc_tokens = 0
-    try:
-        req = urllib.request.Request("http://127.0.0.1:8901/api/claudecode?days=1", headers={"User-Agent": "ForgeConsole/1.0"})
-        with urllib.request.urlopen(req, timeout=0.8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            tot = data.get("total", {})
-            cc_tokens = tot.get("input_tokens", 0) + tot.get("output_tokens", 0)
-    except Exception:
-        pass
+    cc_tokens = _get_server_token_metric("claudecode")
 
     harnesses.append({
         "id": "harness-claude",
@@ -198,17 +235,8 @@ def get_harnesses(procs):
     agy_pids = procs.get("agy", [])
     agy_active = len(agy_pids)
 
-    ag_tokens = 0
-    ag_sessions = 0
-    try:
-        req = urllib.request.Request("http://127.0.0.1:8901/api/antigravity?days=1", headers={"User-Agent": "ForgeConsole/1.0"})
-        with urllib.request.urlopen(req, timeout=0.8) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            tot = data.get("total", {})
-            ag_tokens = tot.get("input_tokens", 0) + tot.get("output_tokens", 0)
-            ag_sessions = data.get("sessions", 0)
-    except Exception:
-        pass
+    ag_tokens = _get_server_token_metric("antigravity")
+    ag_sessions = _get_server_session_metric("antigravity")
 
     harnesses.append({
         "id": "harness-antigravity",
