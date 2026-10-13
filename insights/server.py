@@ -1901,10 +1901,9 @@ class Handler(BaseHTTPRequestHandler):
             elif endpoint == "opencode":
                 data, _age = cached(endpoint, days_str, lambda: build_opencode(cutoff, days_str, days_int))
             elif endpoint == "claudecode":
-                # TASK5: full re-scan per request (sources are small); no cache.
-                data = build_claudecode(cutoff, days_str, days_int)
+                data, _age = cached(endpoint, days_str, lambda: build_claudecode(cutoff, days_str, days_int))
             elif endpoint == "antigravity":
-                data = build_antigravity(cutoff, days_str, days_int)
+                data, _age = cached(endpoint, days_str, lambda: build_antigravity(cutoff, days_str, days_int))
             else:
                 self._send_json({"error": "unknown"}, 404)
                 return
@@ -1912,12 +1911,9 @@ class Handler(BaseHTTPRequestHandler):
             # cached data already computed; use fresh generated_at? keep now for freshness
             # but preserve cache semantics: if hit, generated_at should reflect original?
             # Use the cache entry's time for generated_at to show staleness.
-            if endpoint in ("claudecode", "antigravity"):
-                gen = now
-            else:
-                with _CACHE_LOCK:
-                    ent = _CACHE.get((endpoint, days_str))
-                    gen = ent["at"] if ent else now
+            with _CACHE_LOCK:
+                ent = _CACHE.get((endpoint, days_str))
+                gen = ent["at"] if ent else now
             out["generated_at"] = gen
             out.update(data)
             # keep the requested window echo even if a builder ever sets it
