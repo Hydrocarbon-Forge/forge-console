@@ -799,14 +799,16 @@
       if (elTokensTodaySub) {
         elTokensTodaySub.textContent = formatSourceBreakdown(billedToday.by_source);
       }
-      setText("dest-chip-insights", `${formatCompactTokens(todayBilled)} tkns`);
+      const chipTokens = (billedAlltime && billedAlltime.total != null) ? billedAlltime.total : todayBilled;
+      setText("dest-chip-insights", `${formatCompactTokens(chipTokens)} tkns`);
     } else if (summaryToday) {
       const todayBilled = Number(summaryToday.billed_tokens || summaryToday.total_tokens || 0);
       tweenValue(elTokensToday, todayBilled, (v) => formatCompactTokens(v));
       if (elTokensTodaySub) {
         elTokensTodaySub.textContent = `${formatCompactTokens(todayBilled)} billed`;
       }
-      setText("dest-chip-insights", `${formatCompactTokens(todayBilled)} tkns`);
+      const chipTokens = (billedAlltime && billedAlltime.total != null) ? billedAlltime.total : todayBilled;
+      setText("dest-chip-insights", `${formatCompactTokens(chipTokens)} tkns`);
     } else {
       if (elTokensToday) elTokensToday.textContent = "—";
       if (elTokensTodaySub) elTokensTodaySub.textContent = "—";
