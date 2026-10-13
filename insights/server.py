@@ -1818,6 +1818,7 @@ def invalidate_all():
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "InsightsBoard/1.0"
+    timeout = 60
 
     def log_message(self, fmt, *args):
         pass
@@ -2057,7 +2058,8 @@ def main():
     DB_PATH = args.db
     OPENCODE_DB_PATH = args.opencode_db
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"insights-board serving {WEB_DIR} + API on http://{args.host}:{args.port}/ db={DB_PATH} opencode_db={OPENCODE_DB_PATH}")
+    srv.daemon_threads = True
+    print(f"insights-board serving {WEB_DIR} + API on http://{args.host}:{args.port}/ (timeout={Handler.timeout}s) db={DB_PATH} opencode_db={OPENCODE_DB_PATH}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

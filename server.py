@@ -106,6 +106,9 @@ def collector_loop():
     log_collector("Collector loop started")
     while True:
         try:
+            active_t = threading.active_count()
+            if active_t > 100:
+                log_collector(f"Thread monitor warning: active_threads={active_t}")
             doc = collector.collect()
             with _flow_lock:
                 _flow_cache = doc
@@ -358,6 +361,7 @@ def get_home_tokens_aggregate(force_refresh=False):
 
 class ForgeConsoleHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = 60
 
     def log_message(self, format, *args):
         # Suppress routine logging to keep console clean, or log to debug
@@ -1043,10 +1047,9 @@ def main():
         sys.modules["insights_engine"] = insights_engine
         spec_insights.loader.exec_module(insights_engine)
         insights_handler = insights_engine.Handler
+        insights_handler.timeout = 60
 
-        ThreadingHTTPServer.allow_reuse_address = True
-        insights_server = ThreadingHTTPServer(("0.0.0.0", INSIGHTS_PORT), insights_handler)
-        insights_server.daemon_threads = True
+        insights_server = ReusableThreadingServer(("0.0.0.0", INSIGHTS_PORT), insights_handler)
         insights_thread = threading.Thread(target=insights_server.serve_forever, daemon=True)
         insights_thread.start()
     except OSError as e:
@@ -1067,10 +1070,9 @@ def main():
         sys.modules["ideas_engine"] = ideas_engine
         spec_ideas.loader.exec_module(ideas_engine)
         ideas_handler = ideas_engine.SchemeBoardHandler
+        ideas_handler.timeout = 60
 
-        ThreadingHTTPServer.allow_reuse_address = True
-        ideas_server = ThreadingHTTPServer(("0.0.0.0", IDEAS_PORT), ideas_handler)
-        ideas_server.daemon_threads = True
+        ideas_server = ReusableThreadingServer(("0.0.0.0", IDEAS_PORT), ideas_handler)
         ideas_thread = threading.Thread(target=ideas_server.serve_forever, daemon=True)
         ideas_thread.start()
     except OSError as e:
@@ -1092,9 +1094,12 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
-    print(f"Forge Console server running at http://0.0.0.0:{PORT}")
-    print(f"Insights engine running at http://0.0.0.0:{INSIGHTS_PORT}")
-    print(f"Ideas engine running at http://0.0.0.0:{IDEAS_PORT}")
+    console_to = getattr(ForgeConsoleHandler, "timeout", None)
+    insights_to = getattr(insights_handler, "timeout", None) if "insights_handler" in locals() else None
+    ideas_to = getattr(ideas_handler, "timeout", None) if "ideas_handler" in locals() else None
+    print(f"Forge Console server running at http://0.0.0.0:{PORT} (timeout={console_to}s)")
+    print(f"Insights engine running at http://0.0.0.0:{INSIGHTS_PORT} (timeout={insights_to}s)")
+    print(f"Ideas engine running at http://0.0.0.0:{IDEAS_PORT} (timeout={ideas_to}s)")
     try:
         server.serve_forever()
     except (KeyboardInterrupt, SystemExit):

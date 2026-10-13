@@ -23,6 +23,7 @@ PORT = 8902
 
 class SchemeBoardHandler(BaseHTTPRequestHandler):
     server_version = "SchemeBoard/1.0"
+    timeout = 60
 
     def _send_cors_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -320,7 +321,8 @@ def run_server(host: str = HOST, port: int = PORT) -> None:
     server_address = (host, port)
     ThreadingHTTPServer.allow_reuse_address = True
     httpd = ThreadingHTTPServer(server_address, SchemeBoardHandler)
-    print(f"Scheme Board server running at http://{host}:{port}/")
+    httpd.daemon_threads = True
+    print(f"Scheme Board server running at http://{host}:{port}/ (timeout={SchemeBoardHandler.timeout}s)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
