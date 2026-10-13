@@ -164,7 +164,7 @@ def _fetch_insights_json(endpoint):
         req = urllib.request.Request(f"http://127.0.0.1:{INSIGHTS_PORT}{endpoint}")
         req.add_header("User-Agent", "ForgeConsole/1.0")
         req.add_header("Connection", "close")
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
+        with urllib.request.urlopen(req, timeout=15.0) as resp:
             if resp.status == 200:
                 return json.loads(resp.read().decode("utf-8"))
     except Exception:
@@ -216,7 +216,6 @@ def _compute_home_tokens_aggregate():
         "claudecode": _extract_source_billed("claudecode", res["cc_1d"]),
         "antigravity": _extract_source_billed("antigravity", res["ag_1d"]),
     }
-    today_total = sum(v for v in today_by_src.values() if v is not None)
 
     alltime_by_src = {
         "c6": _extract_source_billed("c6", res["c6_all"]),
@@ -224,6 +223,33 @@ def _compute_home_tokens_aggregate():
         "claudecode": _extract_source_billed("claudecode", res["cc_all"]),
         "antigravity": _extract_source_billed("antigravity", res["ag_all"]),
     }
+
+    # Don't silently drop None sources: fall back to last-known cached value
+    # and mark aggregate degraded.
+    degraded = set()
+    with _home_tokens_lock:
+        cached_data = _home_tokens_cache.get("data")
+
+    cached_today = (cached_data.get("billed_today_by_source", {}).get("by_source", {})) if isinstance(cached_data, dict) else {}
+    cached_alltime = (cached_data.get("billed_alltime_by_source", {}).get("by_source", {})) if isinstance(cached_data, dict) else {}
+
+    for src in ("c6", "opencode", "claudecode", "antigravity"):
+        if today_by_src[src] is None:
+            fallback = cached_today.get(src)
+            if fallback is not None:
+                today_by_src[src] = fallback
+                degraded.add(src)
+            else:
+                degraded.add(src)
+        if alltime_by_src[src] is None:
+            fallback = cached_alltime.get(src)
+            if fallback is not None:
+                alltime_by_src[src] = fallback
+                degraded.add(src)
+            else:
+                degraded.add(src)
+
+    today_total = sum(v for v in today_by_src.values() if v is not None)
     alltime_total = sum(v for v in alltime_by_src.values() if v is not None)
 
     daily_billed_map = {}
@@ -245,13 +271,30 @@ def _compute_home_tokens_aggregate():
             daily_billed_map[dt] = daily_billed_map.get(dt, 0) + b
 
     sorted_dates = sorted(daily_billed_map.keys())
-    activity_7d = {
-        "days": "7",
-        "daily": [{"date": dt, "billed_tokens": daily_billed_map[dt]} for dt in sorted_dates],
-        "total": sum(daily_billed_map.values()),
-    }
+    if sorted_dates:
+        activity_7d = {
+            "days": "7",
+            "daily": [{"date": dt, "billed_tokens": daily_billed_map[dt]} for dt in sorted_dates],
+            "total": sum(daily_billed_map.values()),
+        }
+    elif isinstance(cached_data, dict) and cached_data.get("activity_7d"):
+        activity_7d = cached_data["activity_7d"]
+    else:
+        activity_7d = {
+            "days": "7",
+            "daily": [],
+            "total": 0,
+        }
 
-    return {
+    summary_today = res["c6_1d"] if res["c6_1d"] is not None else (cached_data.get("summary_today") if isinstance(cached_data, dict) else None)
+    summary_alltime = res["c6_all"] if res["c6_all"] is not None else (cached_data.get("summary_alltime") if isinstance(cached_data, dict) else None)
+
+    ag_doc = res.get("ag_1d")
+    ag_sessions = ag_doc.get("sessions", 0) if isinstance(ag_doc, dict) else 0
+    if not ag_sessions and isinstance(cached_data, dict):
+        ag_sessions = cached_data.get("sessions_today", {}).get("antigravity", 0)
+
+    result = {
         "billed_today_by_source": {
             "total": today_total,
             "by_source": today_by_src,
@@ -261,9 +304,38 @@ def _compute_home_tokens_aggregate():
             "by_source": alltime_by_src,
         },
         "activity_7d": activity_7d,
-        "summary_today": res["c6_1d"],
-        "summary_alltime": res["c6_all"],
+        "summary_today": summary_today,
+        "summary_alltime": summary_alltime,
+        "sessions_today": {
+            "antigravity": ag_sessions,
+        },
     }
+    if degraded:
+        result["degraded"] = sorted(list(degraded))
+
+    return result
+
+
+def get_cached_today_tokens(source=None):
+    """Returns cached today billed tokens for a source, or all sources dict."""
+    with _home_tokens_lock:
+        if _home_tokens_cache.get("data"):
+            by_src = _home_tokens_cache["data"].get("billed_today_by_source", {}).get("by_source", {})
+            if source:
+                return by_src.get(source, 0) or 0
+            return dict(by_src)
+    return 0 if source else {}
+
+
+def get_cached_sessions(source=None):
+    """Returns cached sessions count for a source, or all sources dict."""
+    with _home_tokens_lock:
+        if _home_tokens_cache.get("data"):
+            sessions = _home_tokens_cache["data"].get("sessions_today", {})
+            if source:
+                return sessions.get(source, 0) or 0
+            return dict(sessions)
+    return 0 if source else {}
 
 
 def _refresh_home_tokens_cache():
@@ -641,6 +713,8 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
             "projects_count": len(cached_flow.get("projects", [])),
             "generated_at": time.time(),
         }
+        if "degraded" in tokens_data:
+            payload["degraded"] = tokens_data["degraded"]
 
         body = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(200)
@@ -862,7 +936,7 @@ class ForgeConsoleHandler(BaseHTTPRequestHandler):
             req.add_header("Content-Type", self.headers.get("Content-Type"))
 
         try:
-            with urllib.request.urlopen(req, timeout=10.0) as resp:
+            with urllib.request.urlopen(req, timeout=30.0) as resp:
                 resp_body = resp.read()
                 resp_status = resp.status
                 resp_content_type = resp.headers.get("Content-Type", "application/json; charset=utf-8")
