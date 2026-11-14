@@ -3,6 +3,42 @@
 <p align="center"><b>A small local web console for the Hydrocarbon Forge services.</b></p>
 
 <p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/issues?q=is%3Aclosed"><img alt="closed issues" src="https://img.shields.io/github/issues-closed/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/pulls?q=is%3Apr+is%3Aclosed"><img alt="closed pull requests" src="https://img.shields.io/github/issues-pr-closed/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console#readme"><img alt="README" src="https://img.shields.io/badge/README-present-2ea44f?logo=readme&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="tests" src="https://img.shields.io/badge/tests-test_files_in_repo-2ea44f"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/search?l=python"><img alt="language: Python" src="https://img.shields.io/badge/Python-language-3776AB?logo=python&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/search?l=javascript"><img alt="language: JavaScript" src="https://img.shields.io/badge/JavaScript-language-F7DF1E?logo=javascript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/search?l=css"><img alt="language: CSS" src="https://img.shields.io/badge/CSS-language-1572B6?logo=css3&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/search?l=html"><img alt="language: HTML" src="https://img.shields.io/badge/HTML-language-E34F26?logo=html5&logoColor=white"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/search?l=shell"><img alt="language: Shell" src="https://img.shields.io/badge/Shell-language-4EAA25?logo=gnubash&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains Markdown" src="https://img.shields.io/badge/Markdown-files-000000?logo=markdown&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains JSON" src="https://img.shields.io/badge/JSON-files-000000?logo=json&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains PNG" src="https://img.shields.io/badge/PNG-files-0A7BBB"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains gitignore" src="https://img.shields.io/badge/gitignore-files-F05032?logo=git&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains Shell_script" src="https://img.shields.io/badge/Shell__script-files-4EAA25?logo=gnubash&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains HTML" src="https://img.shields.io/badge/HTML-files-E34F26?logo=html5&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains CSS" src="https://img.shields.io/badge/CSS-files-1572B6?logo=css3&logoColor=white"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains JavaScript" src="https://img.shields.io/badge/JavaScript-files-F7DF1E?logo=javascript&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="contains Python" src="https://img.shields.io/badge/Python-files-3776AB?logo=python&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/dashboard"><img alt="topic: dashboard" src="https://img.shields.io/badge/dashboard-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/http-server"><img alt="topic: http-server" src="https://img.shields.io/badge/http--server-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/python"><img alt="topic: python" src="https://img.shields.io/badge/python-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/reverse-proxy"><img alt="topic: reverse-proxy" src="https://img.shields.io/badge/reverse--proxy-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/sqlite"><img alt="topic: sqlite" src="https://img.shields.io/badge/sqlite-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/stdlib-only"><img alt="topic: stdlib-only" src="https://img.shields.io/badge/stdlib--only-topic-0969da"></a>
+</p>
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/topics/worker-pool"><img alt="topic: worker-pool" src="https://img.shields.io/badge/worker--pool-topic-0969da"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="Git" src="https://img.shields.io/badge/Git-version_control-F05032?logo=git&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-hosted-181717?logo=github&logoColor=white"></a>
+</p>
+
+<p align="center">
 <a href="https://github.com/Hydrocarbon-Forge/forge-console/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/Hydrocarbon-Forge/forge-console?style=social"></a>
 <a href="https://github.com/Hydrocarbon-Forge/forge-console/forks"><img alt="forks" src="https://img.shields.io/github/forks/Hydrocarbon-Forge/forge-console?style=social"></a>
 <a href="https://github.com/Hydrocarbon-Forge/forge-console/watchers"><img alt="watchers" src="https://img.shields.io/github/watchers/Hydrocarbon-Forge/forge-console?style=social"></a>
