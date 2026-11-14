@@ -3,6 +3,24 @@
 <p align="center"><b>A small local web console for the Hydrocarbon Forge services.</b></p>
 
 <p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/Hydrocarbon-Forge/forge-console?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/forks"><img alt="forks" src="https://img.shields.io/github/forks/Hydrocarbon-Forge/forge-console?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/watchers"><img alt="watchers" src="https://img.shields.io/github/watchers/Hydrocarbon-Forge/forge-console?style=social"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/issues"><img alt="open issues" src="https://img.shields.io/github/issues/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/pulls"><img alt="open pull requests" src="https://img.shields.io/github/issues-pr/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/commits"><img alt="last commit" src="https://img.shields.io/github/last-commit/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/commits"><img alt="commits per year" src="https://img.shields.io/github/commit-activity/Hydrocarbon-Forge/forge-console/y"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/graphs/contributors"><img alt="contributors" src="https://img.shields.io/github/contributors/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="repo size" src="https://img.shields.io/github/repo-size/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="code size" src="https://img.shields.io/github/languages/code-size/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="top language" src="https://img.shields.io/github/languages/top/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console"><img alt="language count" src="https://img.shields.io/github/languages/count/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/releases"><img alt="latest release" src="https://img.shields.io/github/v/Hydrocarbon-Forge/forge-console?include_prereleases"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Hydrocarbon-Forge/forge-console"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/releases"><img alt="release downloads" src="https://img.shields.io/github/downloads/Hydrocarbon-Forge/forge-console/total"></a>
+</p>
+
+<p align="center">
 Stdlib-only Python server with a bounded worker pool. One process serves the console API and the Insights and Ideas services.
 </p>
 
