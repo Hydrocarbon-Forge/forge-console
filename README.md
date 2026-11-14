@@ -101,6 +101,13 @@ Stdlib-only Python server with a bounded worker pool. One process serves the con
 <a href="https://github.com/Hydrocarbon-Forge/mod-factory"><img alt="more: mod-factory" src="https://img.shields.io/badge/repo-mod--factory-24292F?logo=github&logoColor=white"></a>
 </p>
 
+<p align="center">
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/commits"><img alt="commits list" src="https://img.shields.io/badge/commits-history-F05032?logo=github&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/branches"><img alt="branches" src="https://img.shields.io/badge/browse-branches-24292F?logo=github&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/tags"><img alt="tags" src="https://img.shields.io/badge/browse-tags-24292F?logo=github&logoColor=white"></a>
+<a href="https://github.com/Hydrocarbon-Forge/forge-console/issues"><img alt="issues list" src="https://img.shields.io/badge/browse-issues-D73A49?logo=github&logoColor=white"></a>
+</p>
+
 ## What it is
 
 Forge Console is a local control panel for the Hydrocarbon Forge services. A single Python process (`server.py`) listens on three ports:
