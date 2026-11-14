@@ -1,19 +1,98 @@
 <h1 align="center">Forge Console</h1>
 
-<p align="center"><b>A small local web console for the Forge services.</b></p>
+<p align="center"><b>A small local web console for the Hydrocarbon Forge services.</b></p>
+
+<p align="center">
+Stdlib-only Python server with a bounded worker pool. One process serves the console API and the Insights and Ideas services.
+</p>
 
 <p align="center">
 <a href="LICENSE"><img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
+<p align="center">
+<a href="DESIGN.md">Design</a> &middot; <a href="SPEC.md">Spec</a> &middot; <a href="LICENSE">License</a>
+</p>
+
 ---
 
-## Overview
+## What it is
 
-A Python HTTP console server (`server.py`) for the Forge services. A bounded worker pool replaced unbounded per-connection threads in round 2 of the fixes.
+Forge Console is a local control panel for the Hydrocarbon Forge services. A single Python process (`server.py`) listens on three ports:
 
-## Docs
+| Port | Service |
+|---|---|
+| `8903` | Forge Console API and static UI (`web/`) |
+| `8901` | Insights board (`insights/`) |
+| `8902` | Ideas / scheme board (`ideas/`) |
 
-- [`DESIGN.md`](DESIGN.md): design overview
-- `COMPLETE*.md`: verification write-ups for each fix round
-- `FIX-*.md`: individual fix records
+It uses only the Python standard library, with no build step and no third-party dependencies.
+
+## Features
+
+Each item below was checked against the code in `server.py`, `bounded_server.py` and `collector.py`.
+
+- **Bounded worker pool.** `bounded_server.py` handles requests on a fixed `ThreadPoolExecutor` (default `max_workers=64`). When every worker is busy, new connections get `HTTP 503` with `Retry-After: 2` and are closed.
+- **Three listeners in one process.** The console (8903), Insights (8901) and Ideas (8902) bind `0.0.0.0`. If 8901 or 8902 is already taken, the console logs it and forwards to the existing service.
+- **Health check.** `GET /api/health`.
+- **Flow data.** `GET /api/flow` returns data gathered every 5 seconds by `collector.py`: agent-harness processes (found by scanning `/proc`), read-only OpenCode SQLite sessions, and recent changes under `~/HydrocarbonForge/Projects`.
+- **Projects registry.** `GET`, `POST`, `PATCH` and `DELETE` on `/api/projects` and `/api/projects/<id>`, stored in `data/projects.json`.
+- **Trading summary.** `GET /api/trading` reads from the forge-office service at `127.0.0.1:8904`, falling back to `~/HydrocarbonForge/Projects/forge-office/data/trading.json`.
+- **Home summary.** `GET /api/home`, with a background refresher for today's token totals.
+- **Proxies.** `/api/proxy/insights*` and `/api/proxy/scheme*` forward to the Insights and Ideas services.
+
+## Quick start
+
+Requires Python 3. `bounded_server.py` is written for Python 3.14; other versions are untested.
+
+```sh
+git clone https://github.com/Hydrocarbon-Forge/forge-console.git
+cd forge-console
+python3 server.py          # runs in the foreground, logs to the terminal
+```
+
+Then open <http://localhost:8903>.
+
+To run in the background with logs in `data/server.log`:
+
+```sh
+./run.sh
+```
+
+Set `PORT` to change the console port (default `8903`):
+
+```sh
+PORT=8910 python3 server.py
+```
+
+## How it works
+
+| File | Role |
+|---|---|
+| `server.py` | Entry point. Defines the HTTP routes, proxies, projects storage, and a background collector thread. |
+| `bounded_server.py` | Bounded worker-pool HTTP server and the 503 saturation response. |
+| `collector.py` | Collects process, filesystem and database metrics for the flow view. |
+| `web/` | Static console UI (`index.html`, `app.js`, `style.css`). |
+| `insights/` | Insights board: server, UI and report tooling. |
+| `ideas/` | Ideas (scheme) board: server, UI, SQLite data layer and analysis script. |
+| `run.sh` | Launcher. Creates `data/` and runs `server.py` with output appended to `data/server.log`. |
+| `verify_*.py` | Standalone verification scripts (see Testing). |
+
+Runtime data goes under `data/`, which is git-ignored along with `*.log` and `*.png`.
+
+The collector reads AI-tool history and project folders under the current user's home directory. The console is designed for a single machine where those paths exist.
+
+## Testing
+
+There is no test runner config and no CI workflow. The repo has these scripts:
+
+```sh
+python3 verify_product_b.py        # boots a standalone server on PORT=8910 and exercises /api/health and /api/projects CRUD
+python3 ideas/test_smoke.py        # end-to-end smoke test; needs the ideas server running on 8902
+```
+
+Other root scripts (`verify_home_metrics.py`, `verify_office_redirect.py`, `verify_tween_robustness.py`) and `insights/test_api.py` were not run or reviewed for this README.
+
+## License
+
+MIT License, Copyright (c) 2026 Hydrocarbon Forge. See [LICENSE](LICENSE).
